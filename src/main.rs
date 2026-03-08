@@ -1,9 +1,11 @@
 use std::fs;
 use std::io::ErrorKind;
 
+use fast_disambig::utils;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let file_content = match fs::read_to_string(
-        "/Users/hadihamoud/.camel_tools/data/disambig_mle/calima-msa-r13/model.json",
+    let _ = match fs::read_to_string(
+        "/Users/hadihamoud/.camel_tools/data/morphology_db/calima-msa-r13/morphology.db",
     ) {
         Ok(content) => content,
         Err(error) => match error.kind() {
@@ -17,14 +19,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         },
     };
-
-    let parsed: serde_json::Value = serde_json::from_str(&file_content)?;
-    let parsed = parsed.as_object();
-
-    for (key, value) in parsed.unwrap() {
-        println!("{key}");
-        println!("{value}");
-    }
-
     Ok(())
 }
