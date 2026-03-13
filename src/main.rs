@@ -1,13 +1,34 @@
+use clap::{Parser, Subcommand};
 use fast_disambig::downloader;
-use fast_disambig::utils;
 
+#[derive(Parser)]
+#[command(name = "fast-disambig", about = "CAMeL Tools CLI")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+#[derive(Subcommand)]
+enum Commands {
+    Data {
+        #[arg(short, long)]
+        list: bool,
+
+        #[arg(short, long)]
+        download: Option<String>,
+    },
+}
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let camel_dir = downloader::get_or_create_camel_dir()?;
-
-    let db_path = camel_dir.join("data/morphology_db/calima-msa-r13/morphology.db");
-    let dediac = utils::dediac_ar(&db_path.to_string_lossy());
+    let cli = Cli::parse();
     let catalogue = downloader::CamelCatalogue::load()?;
-    catalogue.display()?;
-
+    match cli.command {
+        Commands::Data { list, download } => {
+            if list {
+                catalogue.display()?;
+            }
+            if let Some(package) = download {
+                catalogue.download_resource(&package)?;
+            }
+        }
+    }
     Ok(())
 }

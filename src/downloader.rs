@@ -7,14 +7,13 @@ use serde::Serialize;
 use serde_json;
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::BufReader;
-use std::io::BufWriter;
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::{env, fs};
 
 #[derive(Serialize, Deserialize)]
 pub struct CamelCatalogue {
-    packages: BTreeMap<String, CamelResource>,
+    pub packages: BTreeMap<String, CamelResource>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -22,6 +21,7 @@ pub struct CamelResource {
     name: String,
     description: String,
     private: bool,
+    destination: Option<String>,
     url: Option<String>,
     path: Option<PathBuf>,
     license: Option<String>,
@@ -30,8 +30,93 @@ pub struct CamelResource {
     dependencies: Vec<String>,
 }
 
+impl CamelResource {
+    pub fn download(&self) -> Result<()> {
+        let url = match self.url.as_ref() {
+            Some(u) => u,
+            None => return Ok(()),
+        };
+
+        let camel_dir = get_or_create_camel_dir()?;
+        let dest = camel_dir.join(self.destination.as_deref().unwrap_or(&self.name));
+        let tmp_dest =
+            PathBuf::from("/tmp").join(self.destination.as_deref().unwrap_or(&self.name));
+
+        if let Some(parent) = tmp_dest.parent() {
+            fs::create_dir_all(parent).context(format!(
+                "Failed to create temp directory {}",
+                parent.display()
+            ))?;
+        }
+
+        let mut response = ureq::get(url)
+            .call()
+            .context(format!("Failed to download '{}'", self.name))?;
+
+        let mut writer = BufWriter::new(
+            File::create(&tmp_dest)
+                .context(format!("Failed to create file at {}", tmp_dest.display()))?,
+        );
+
+        let total = self.size.unwrap_or(0);
+        let mut downloaded: usize = 0;
+        let bar_width: usize = 100;
+
+        let mut buf = [0u8; 8192];
+        let mut reader = response.body_mut().as_reader();
+        loop {
+            let n = reader
+                .read(&mut buf)
+                .context("Failed to read from response stream")?;
+            if n == 0 {
+                break;
+            }
+            writer
+                .write_all(&buf[..n])
+                .context("Failed to write to file")?;
+
+            downloaded += n;
+            if total > 0 {
+                let pct = (downloaded as f64 / total as f64 * 100.0).min(100.0) as usize;
+                let filled = pct * bar_width / 100;
+                let empty = bar_width - filled;
+                let dl = utils::bytes_to_mib_human_readable(downloaded);
+                let tot = utils::bytes_to_mib_human_readable(total);
+                print!(
+                    "\r{:<30} [{:o<filled$}{: <empty$}] {:>3}% {dl}/{tot}",
+                    self.name,
+                    "",
+                    "",
+                    pct,
+                    filled = filled,
+                    empty = empty,
+                );
+                io::stdout().flush().ok();
+            }
+        }
+        println!();
+        writer.flush().context("Failed to flush file")?;
+        fs::create_dir_all(&dest)
+            .context(format!("Failed to create destination {}", dest.display()))?;
+        utils::unzip_file(&tmp_dest, &dest)?;
+        fs::remove_file(&tmp_dest).context("Failed to clean up temp file")?;
+
+        Ok(())
+    }
+}
+
+pub fn get_or_create_camel_dir() -> Result<PathBuf> {
+    let curr_home_dir = env::home_dir().context("Home directory not found")?;
+
+    let camel_dir = curr_home_dir.join(".camel_tools/data");
+    if !camel_dir.exists() {
+        fs::create_dir_all(&camel_dir).context("Could not create the .camel_tools directory")?;
+    }
+    Ok(camel_dir)
+}
+
 impl CamelCatalogue {
-    pub fn download(catalogue_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn get(catalogue_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         let catalogue_file = File::create(catalogue_path)?;
         match ureq::get(constants::CAMEL_DATA_CATALOGUE_URL).call() {
             Ok(mut response) => {
@@ -54,7 +139,7 @@ impl CamelCatalogue {
         let camel_dir = get_or_create_camel_dir()?;
         let catalogue_path = camel_dir.join("catalogue.json");
         if !catalogue_path.exists() {
-            Self::download(&catalogue_path)?;
+            Self::get(&catalogue_path)?;
         }
 
         let reader = BufReader::new(File::open(catalogue_path)?);
@@ -67,7 +152,6 @@ impl CamelCatalogue {
 
     pub fn display(&self) -> Result<(), Box<dyn std::error::Error>> {
         let name_width = self.packages.keys().map(String::len).max().unwrap_or(1);
-
         let license_width = 10;
         let size_width = 10;
         println!(
@@ -112,14 +196,15 @@ impl CamelCatalogue {
 
         Ok(())
     }
-}
-
-pub fn get_or_create_camel_dir() -> Result<PathBuf> {
-    let curr_home_dir = env::home_dir().context("Home directory not found")?;
-
-    let camel_dir = curr_home_dir.join(".camel_tools");
-    if !camel_dir.exists() {
-        fs::create_dir_all(&camel_dir).context("Could not create the .camel_tools directory")?;
+    pub fn download_resource(&self, resource_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let resource = self.packages.get(resource_name).context(format!(
+            "Package '{}' not found in catalogue",
+            resource_name
+        ))?;
+        for dep in &resource.dependencies {
+            self.download_resource(dep)?;
+        }
+        resource.download()?;
+        Ok(())
     }
-    Ok(camel_dir)
 }
