@@ -9,3 +9,8 @@ pub fn dediac_ar(s: &str) -> String {
     let sub = dediac_re.replace_all(s, "");
     sub.to_string()
 }
+
+pub fn bytes_to_mib_human_readable(num: usize) -> String {
+    let num_mibs = num / (1024 * 1024);
+    return num_mibs.to_string() + " MB";
+}
