@@ -28,6 +28,14 @@ pub struct CamelResource {
     size: Option<usize>,
     sha256: Option<String>,
     dependencies: Vec<String>,
+    files: Option<Vec<CamelResourceFile>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CamelResourceFile {
+    path: String,
+    sha256: String,
+    size: usize,
 }
 
 impl CamelResource {
@@ -36,6 +44,10 @@ impl CamelResource {
             Some(u) => u,
             None => return Ok(()),
         };
+
+        if self.exists()? {
+            return Ok(());
+        }
 
         let camel_dir = get_or_create_camel_dir()?;
         let dest = camel_dir.join(self.destination.as_deref().unwrap_or(&self.name));
@@ -83,7 +95,7 @@ impl CamelResource {
                 let dl = utils::bytes_to_mib_human_readable(downloaded);
                 let tot = utils::bytes_to_mib_human_readable(total);
                 print!(
-                    "\r{:<30} [{:o<filled$}{: <empty$}] {:>3}% {dl}/{tot}",
+                    "\r{:<30} [{:*<filled$}{: <empty$}] {:>3}% {dl}/{tot}",
                     self.name,
                     "",
                     "",
@@ -102,6 +114,43 @@ impl CamelResource {
         fs::remove_file(&tmp_dest).context("Failed to clean up temp file")?;
 
         Ok(())
+    }
+    pub fn exists(&self) -> Result<bool> {
+        println!("Checking if {} exists", self.name);
+        let camel_dir = get_or_create_camel_dir()?;
+        let path = camel_dir.join(
+            self.destination
+                .as_ref()
+                .context("Resource has no path field")?,
+        );
+
+        if !path.exists() {
+            println!("directory does not exist in the first place");
+            return Ok(false);
+        }
+
+        let expected_files = match self.files.as_ref() {
+            Some(files) => files,
+            None => return Ok(true),
+        };
+
+        for expected in expected_files {
+            let file_path = path.join(&expected.path);
+
+            if !file_path.exists() {
+                println!("file does not exist");
+                return Ok(false);
+            }
+            let file_as_bytes = fs::read(&file_path)?;
+            let file_hash = utils::hash(&file_as_bytes);
+            if file_hash != expected.sha256 {
+                return Ok(false);
+            }
+        }
+
+        println!("{} already exists, skipping...", self.name);
+
+        Ok(true)
     }
 }
 
