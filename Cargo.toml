@@ -7,10 +7,16 @@ edition = "2024"
 name = "fast_disambig"
 crate-type = ["cdylib", "rlib"]
 
+
+
+[features]
+default = []
+python = ["pyo3"]
+
 [dependencies]
 anyhow = "1.0.102"
 clap = { version = "4.6.0", features = ["derive"] }
-pyo3 = { version = "0.25", features = ["extension-module"] }
+pyo3 = { version = "0.25", features = ["extension-module"], optional = true }
 rand = "0.8.5"
 rayon = "1.11.0"
 regex = "1.12.3"

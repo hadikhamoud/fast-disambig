@@ -3,6 +3,7 @@ pub mod constants;
 pub mod downloader;
 pub mod mle;
 pub mod morphology_db;
+#[cfg(feature = "python")]
 pub mod python;
 pub mod stemmer;
 pub mod supplement_stems;

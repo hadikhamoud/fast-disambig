@@ -333,10 +333,22 @@ fn dediac_ar(text: &str) -> PyResult<String> {
     utils::dediac_ar(text).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
 }
 
-fn resolve_resource_path(name: &str) -> PyResult<PathBuf> {
+fn ensure_resource(name: &str) -> PyResult<PathBuf> {
     let camel_dir = downloader::get_or_create_camel_dir()
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-    Ok(camel_dir.join(name))
+    let path = camel_dir.join(name);
+    if !path.exists() {
+        eprintln!("Resource '{}' not found locally, downloading...", name);
+        let catalogue = downloader::CamelCatalogue::load()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        catalogue.download_resource(name).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "Failed to download '{}': {}",
+                name, e
+            ))
+        })?;
+    }
+    Ok(path)
 }
 
 #[pyclass]
@@ -350,8 +362,8 @@ impl MLEDisambiguator {
     #[new]
     #[pyo3(signature = (name="calima-msa-r13"))]
     fn new(name: &str) -> PyResult<Self> {
-        let db_path = resolve_resource_path(&format!("morphology_db/{}", name))?;
-        let mle_path = resolve_resource_path(&format!("disambig_mle/{}", name))?;
+        let db_path = ensure_resource(&format!("morphology_db/{}", name))?;
+        let mle_path = ensure_resource(&format!("disambig_mle/{}", name))?;
         let db = MorphologyDB::load(db_path)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let model = mle::load_mle_model(mle_path)
@@ -395,8 +407,8 @@ impl Stemmer {
     #[new]
     #[pyo3(signature = (name="calima-msa-r13"))]
     fn new(name: &str) -> PyResult<Self> {
-        let db_path = resolve_resource_path(&format!("morphology_db/{}", name))?;
-        let mle_path = resolve_resource_path(&format!("disambig_mle/{}", name))?;
+        let db_path = ensure_resource(&format!("morphology_db/{}", name))?;
+        let mle_path = ensure_resource(&format!("disambig_mle/{}", name))?;
         let db = MorphologyDB::load(db_path)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let model = mle::load_mle_model(mle_path)
