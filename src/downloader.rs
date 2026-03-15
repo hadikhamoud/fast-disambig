@@ -23,7 +23,7 @@ pub struct CamelResource {
     private: bool,
     destination: Option<String>,
     url: Option<String>,
-    path: Option<PathBuf>,
+    pub path: Option<PathBuf>,
     license: Option<String>,
     size: Option<usize>,
     sha256: Option<String>,
@@ -195,6 +195,12 @@ impl CamelCatalogue {
         let mut catalogue_json: CamelCatalogue = serde_json::from_reader(reader)
             .context("Was not able to read the json into Camel Catalogue")?;
         catalogue_json.packages.retain(|_, res| !res.private);
+
+        for res in catalogue_json.packages.values_mut() {
+            if let Some(dest) = &res.destination {
+                res.path = Some(camel_dir.join(dest));
+            }
+        }
 
         Ok(catalogue_json)
     }
