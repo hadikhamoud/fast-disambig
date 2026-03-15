@@ -4,4 +4,6 @@ pub mod downloader;
 pub mod mle;
 pub mod morphology_db;
 pub mod python;
+pub mod stemmer;
+pub mod supplement_stems;
 pub mod utils;

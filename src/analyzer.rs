@@ -507,7 +507,7 @@ pub fn analyze(
 
     let word_dediac = utils::dediac_ar(word)?;
     let word_normalized = utils::normalize_ar(word)?;
-    let mut backoff_toks = backoff.clone().split("_");
+    let mut backoff_toks = backoff.split("_");
     let backoff_condition = backoff_toks
         .next()
         .context("invalid backoff condition parsing")?;

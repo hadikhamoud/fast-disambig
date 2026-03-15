@@ -3,8 +3,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::analyzer::ScoredAnalysis;
+use crate::downloader;
 use crate::mle;
 use crate::morphology_db::MorphologyDB;
+use crate::stemmer;
 use crate::utils;
 
 #[pyclass]
@@ -303,13 +305,138 @@ fn tokenize(sentence: &str, mode: &str) -> Vec<String> {
     utils::simple_word_tokenize(sentence, mode)
 }
 
+#[pyfunction]
+#[pyo3(signature = (text, db, model, sep="[+]", scheme="d3tok", preserve_diacritics=false, backoff="NOAN_PROP"))]
+fn stem(
+    text: &str,
+    db: &PyMorphologyDB,
+    model: &PyMLEModel,
+    sep: &str,
+    scheme: &str,
+    preserve_diacritics: bool,
+    backoff: &str,
+) -> PyResult<String> {
+    stemmer::stem(
+        text,
+        &db.inner,
+        &model.inner,
+        sep,
+        scheme,
+        preserve_diacritics,
+        backoff,
+    )
+    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
+#[pyfunction]
+fn dediac_ar(text: &str) -> PyResult<String> {
+    utils::dediac_ar(text).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
+fn resolve_resource_path(name: &str) -> PyResult<PathBuf> {
+    let camel_dir = downloader::get_or_create_camel_dir()
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    Ok(camel_dir.join(name))
+}
+
+#[pyclass]
+pub struct MLEDisambiguator {
+    db: MorphologyDB,
+    model: HashMap<String, ScoredAnalysis>,
+}
+
+#[pymethods]
+impl MLEDisambiguator {
+    #[new]
+    #[pyo3(signature = (name="calima-msa-r13"))]
+    fn new(name: &str) -> PyResult<Self> {
+        let db_path = resolve_resource_path(&format!("morphology_db/{}", name))?;
+        let mle_path = resolve_resource_path(&format!("disambig_mle/{}", name))?;
+        let db = MorphologyDB::load(db_path)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let model = mle::load_mle_model(mle_path)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(MLEDisambiguator { db, model })
+    }
+
+    #[pyo3(signature = (sentence, backoff="NOAN_PROP", top=1))]
+    fn disambiguate(
+        &self,
+        sentence: Vec<String>,
+        backoff: &str,
+        top: usize,
+    ) -> PyResult<Vec<DisambiguatedWord>> {
+        let refs: Vec<&str> = sentence.iter().map(|s| s.as_str()).collect();
+        let results = mle::disambiguate(&refs, &self.db, &self.model, backoff, top)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        Ok(refs
+            .iter()
+            .zip(results.into_iter())
+            .map(|(word, word_analyses)| DisambiguatedWord {
+                word: word.to_string(),
+                analyses: word_analyses
+                    .into_iter()
+                    .map(PyScoredAnalysis::from)
+                    .collect(),
+            })
+            .collect())
+    }
+}
+
+#[pyclass]
+pub struct Stemmer {
+    db: MorphologyDB,
+    model: HashMap<String, ScoredAnalysis>,
+}
+
+#[pymethods]
+impl Stemmer {
+    #[new]
+    #[pyo3(signature = (name="calima-msa-r13"))]
+    fn new(name: &str) -> PyResult<Self> {
+        let db_path = resolve_resource_path(&format!("morphology_db/{}", name))?;
+        let mle_path = resolve_resource_path(&format!("disambig_mle/{}", name))?;
+        let db = MorphologyDB::load(db_path)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let model = mle::load_mle_model(mle_path)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(Stemmer { db, model })
+    }
+
+    #[pyo3(signature = (text, sep="[+]", scheme="d3tok", preserve_diacritics=false, backoff="NOAN_PROP"))]
+    fn stem(
+        &self,
+        text: &str,
+        sep: &str,
+        scheme: &str,
+        preserve_diacritics: bool,
+        backoff: &str,
+    ) -> PyResult<String> {
+        stemmer::stem(
+            text,
+            &self.db,
+            &self.model,
+            sep,
+            scheme,
+            preserve_diacritics,
+            backoff,
+        )
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+}
+
 #[pymodule]
 fn fast_disambig(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMorphologyDB>()?;
     m.add_class::<PyMLEModel>()?;
     m.add_class::<PyScoredAnalysis>()?;
     m.add_class::<DisambiguatedWord>()?;
+    m.add_class::<MLEDisambiguator>()?;
+    m.add_class::<Stemmer>()?;
     m.add_function(wrap_pyfunction!(disambiguate, m)?)?;
     m.add_function(wrap_pyfunction!(tokenize, m)?)?;
+    m.add_function(wrap_pyfunction!(stem, m)?)?;
+    m.add_function(wrap_pyfunction!(dediac_ar, m)?)?;
     Ok(())
 }

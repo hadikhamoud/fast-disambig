@@ -1,4 +1,5 @@
 use crate::analyzer::ScoredAnalysis;
+use crate::supplement_stems;
 use crate::utils;
 use anyhow::Context;
 use anyhow::Result;
@@ -23,7 +24,7 @@ pub struct MorphologyDB {
     pub prefix_stem_compat: HashMap<String, HashSet<String>>,
     pub stem_suffix_compat: HashMap<String, HashSet<String>>,
     pub prefix_suffix_compat: HashMap<String, HashSet<String>>,
-    stem_prefix_compat: HashMap<String, HashSet<String>>,
+    _stem_prefix_compat: HashMap<String, HashSet<String>>,
     pub max_prefix_size: usize,
     pub max_suffix_size: usize,
 }
@@ -46,7 +47,7 @@ impl MorphologyDB {
             prefix_stem_compat: HashMap::new(),
             stem_suffix_compat: HashMap::new(),
             prefix_suffix_compat: HashMap::new(),
-            stem_prefix_compat: HashMap::new(),
+            _stem_prefix_compat: HashMap::new(),
             max_prefix_size: 0,
             max_suffix_size: 0,
         }
@@ -374,6 +375,101 @@ impl MorphologyDB {
         db.max_prefix_size = db.prefix_hash.keys().map(String::len).max().unwrap_or(0);
         db.max_suffix_size = db.suffix_hash.keys().map(String::len).max().unwrap_or(0);
 
+        db.inject_supplementary_stems(
+            supplement_stems::SUPPLEMENT_AL_T,
+            supplement_stems::SUPPLEMENT_AL,
+            supplement_stems::SUPPLEMENT_T,
+        );
+
         Ok(db)
+    }
+
+    fn make_nall_stem(surface: &str) -> ScoredAnalysis {
+        ScoredAnalysis {
+            category: "Nall".to_string(),
+            diac: surface.to_string(),
+            lex: surface.to_string(),
+            bw: format!("{}/NOUN", surface),
+            gloss: "NO_GLOSS".to_string(),
+            pos: "noun".to_string(),
+            per: "na".to_string(),
+            asp: "na".to_string(),
+            vox: "na".to_string(),
+            r#mod: "na".to_string(),
+            r#gen: "-".to_string(),
+            num: "-".to_string(),
+            stt: "i".to_string(),
+            cas: "u".to_string(),
+            rat: "i".to_string(),
+            enc0: "0".to_string(),
+            prc0: "0".to_string(),
+            prc1: "0".to_string(),
+            prc2: "0".to_string(),
+            prc3: "0".to_string(),
+            form_gen: "m".to_string(),
+            form_num: "s".to_string(),
+            source: "lex".to_string(),
+            catib6: "NOM".to_string(),
+            ud: "NOUN".to_string(),
+            d1seg: surface.to_string(),
+            d2seg: surface.to_string(),
+            d3seg: surface.to_string(),
+            atbseg: surface.to_string(),
+            d1tok: surface.to_string(),
+            d2tok: surface.to_string(),
+            d3tok: surface.to_string(),
+            atbtok: surface.to_string(),
+            bwtok: surface.to_string(),
+            pos_logprob: -99.0,
+            lex_logprob: -99.0,
+            pos_lex_logprob: -99.0,
+            ..Default::default()
+        }
+    }
+
+    pub fn inject_supplementary_stems(
+        &mut self,
+        al_t_words: &[&str],
+        al_words: &[&str],
+        t_words: &[&str],
+    ) {
+        let al_len: usize = "ال".len();
+        let haa_len: usize = "ه".len();
+
+        for word in al_t_words {
+            let normalized = utils::normalize_ar(word).unwrap_or_else(|_| word.to_string());
+            if normalized.len() <= al_len + haa_len {
+                continue;
+            }
+            let stem = &normalized[al_len..normalized.len() - haa_len];
+            self.stem_hash
+                .entry(stem.to_string())
+                .or_default()
+                .push(Self::make_nall_stem(stem));
+        }
+
+        for word in al_words {
+            let normalized = utils::normalize_ar(word).unwrap_or_else(|_| word.to_string());
+            if normalized.len() <= al_len {
+                continue;
+            }
+            let stem = &normalized[al_len..];
+            self.stem_hash
+                .entry(stem.to_string())
+                .or_default()
+                .push(Self::make_nall_stem(stem));
+        }
+
+        for word in t_words {
+            let normalized = utils::normalize_ar(word).unwrap_or_else(|_| word.to_string());
+            if normalized.len() <= haa_len {
+                continue;
+            }
+            let stem = &normalized[..normalized.len() - haa_len];
+            self.stem_hash
+                .entry(stem.to_string())
+                .or_default()
+                .push(Self::make_nall_stem(stem));
+        }
     }
 }

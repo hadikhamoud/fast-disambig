@@ -33,10 +33,14 @@ pub static TOK_SCHEMES_2: LazyLock<HashSet<&'static str>> =
     LazyLock::new(|| HashSet::from(["d3tok", "d3seg"]));
 
 static RE_DEDIAC: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[\u{064B}\u{064C}\u{064D}\u{064E}\u{064F}\u{0650}\u{0651}\u{0652}\u{0671}]")
-        .unwrap()
+    Regex::new(
+        r"[\u{064B}\u{064C}\u{064D}\u{064E}\u{064F}\u{0650}\u{0651}\u{0652}\u{0670}\u{0671}]",
+    )
+    .unwrap()
 });
 static RE_STRIP_LEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[_-]").unwrap());
+pub static RE_ZERO_WIDTH: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[\u{200B}-\u{200D}\u{200E}\u{200F}\u{FEFF}]").unwrap());
 
 static RE_ALEF_NORMALIZE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[\u{0625}\u{0623}\u{0671}\u{0622}]").unwrap());
@@ -99,15 +103,16 @@ static RE_TANWYN_AF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\u{0627}\u{
 static RE_TANWYN_YF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\u{0649}\u{064B}").unwrap());
 
 static RE_TOKENIZE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[\p{P}\p{S}]|[\p{L}\p{M}\p{N}]+").unwrap());
+    LazyLock::new(|| Regex::new(r"[\p{P}\p{S}]|[\p{L}\p{M}\p{N}]+|\s+").unwrap());
 static RE_TOKENIZE_NUMBER: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[\p{P}\p{S}]|[\p{N}]+|[\p{L}\p{M}]+").unwrap());
+    LazyLock::new(|| Regex::new(r"[\p{P}\p{S}]|[\p{N}]+|[\p{L}\p{M}]+|\s+").unwrap());
 static RE_TOKENIZE_COMPACT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
         r"[\p{P}\p{S}]",
         r"|[\p{N}]+",
         r"|[\u{0600}-\u{06FF}\u{0750}-\u{077F}\u{08A0}-\u{08FF}\u{FB50}-\u{FDFF}\u{FE70}-\u{FEFF}\p{M}]+",
         r"|[\p{L}]+",
+        r"|\s+",
     ))
     .unwrap()
 });
@@ -342,6 +347,156 @@ pub fn unzip_file(zip_path: &PathBuf, extract_to_path: &PathBuf) -> Result<()> {
 pub fn hash(inp: &[u8]) -> String {
     let digest = Sha256::digest(inp);
     format!("{:x}", digest)
+}
+
+pub const TAA_MARBOUTA: char = '\u{0629}';
+pub const TAA_MARBOUTA_DETACHED: char = '\u{FE93}';
+pub const HAA: char = '\u{0647}';
+
+pub static DIACRITIC_SET: LazyLock<HashSet<char>> = LazyLock::new(|| {
+    HashSet::from([
+        '\u{064B}', '\u{064C}', '\u{064D}', '\u{064E}', '\u{064F}', '\u{0650}', '\u{0651}',
+        '\u{0652}', '\u{0670}',
+    ])
+});
+
+pub fn has_diacritics(word: &str) -> bool {
+    word.chars().any(|c| DIACRITIC_SET.contains(&c))
+}
+
+pub fn is_diacritic(c: char) -> bool {
+    DIACRITIC_SET.contains(&c)
+}
+
+pub fn split_and_replace_sep(tok: &str, sep: &str) -> Vec<String> {
+    let parts: Vec<&str> = tok.split('_').collect();
+    let mut result = Vec::new();
+    for part in parts.iter() {
+        let mut s = part.to_string();
+        if s.starts_with('+') {
+            s = format!("{}{}", sep, &s[1..]);
+        }
+        if s.ends_with('+') {
+            s = format!("{}{}", &s[..s.len() - 1], sep);
+        }
+        result.push(s);
+    }
+    result
+}
+
+pub fn split_token_on_t(toks: Vec<String>, sep: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    for tok in toks {
+        let last = tok.chars().last().unwrap_or('\0');
+        if last == TAA_MARBOUTA || last == TAA_MARBOUTA_DETACHED || last == HAA {
+            if tok.chars().count() == 1 && last == HAA {
+                result.push(format!("{}{}", sep, TAA_MARBOUTA));
+            } else {
+                let without_last: String = tok.chars().take(tok.chars().count() - 1).collect();
+                result.push(without_last);
+                result.push(format!("{}{}", sep, last));
+            }
+        } else {
+            result.push(tok);
+        }
+    }
+    result
+}
+
+pub fn merge_alef_lam(toks: Vec<String>, sep: &str) -> Vec<String> {
+    let lam_plus = format!("ل{}", sep);
+    let alef_lam_plus = format!("ال{}", sep);
+    let lam_lam_plus = format!("لل{}", sep);
+
+    let mut result = Vec::new();
+    let mut i = 0;
+    while i < toks.len() {
+        if i + 1 < toks.len() && toks[i] == lam_plus && toks[i + 1] == alef_lam_plus {
+            result.push(lam_lam_plus.clone());
+            i += 2;
+            continue;
+        }
+        result.push(toks[i].clone());
+        i += 1;
+    }
+    result
+}
+
+pub fn merge_tokens(toks: &[String], sep: &str) -> String {
+    let sep_len = sep.len();
+    let mut parts = Vec::new();
+    for tok in toks {
+        if tok == sep {
+            parts.push("_".to_string());
+        } else if tok.ends_with(sep) {
+            parts.push(tok[..tok.len() - sep_len].to_string());
+        } else if tok.starts_with(sep) {
+            parts.push(tok[sep_len..].to_string());
+        } else {
+            parts.push(tok.clone());
+        }
+    }
+    parts.join("")
+}
+
+pub fn apply_diacritics(segments: &[String], diacritized: &str, sep: &str) -> Vec<String> {
+    let mut source = diacritized.chars().peekable();
+    let mut result = Vec::new();
+
+    let leading: String = diacritized
+        .chars()
+        .take_while(|c| is_diacritic(*c))
+        .collect();
+    for _ in 0..leading.chars().count() {
+        source.next();
+    }
+
+    for (seg_idx, seg) in segments.iter().enumerate() {
+        if seg == sep {
+            result.push(sep.to_string());
+            continue;
+        }
+
+        let mut out = String::new();
+        if seg_idx == 0 && !leading.is_empty() {
+            out.push_str(&leading);
+        }
+
+        let sep_bytes = sep.len();
+        let mut pos = 0;
+
+        while pos < seg.len() {
+            if pos + sep_bytes <= seg.len()
+                && seg.is_char_boundary(pos)
+                && seg.is_char_boundary(pos + sep_bytes)
+                && &seg[pos..pos + sep_bytes] == sep
+            {
+                out.push_str(sep);
+                pos += sep_bytes;
+                continue;
+            }
+
+            let c = seg[pos..].chars().next().unwrap();
+
+            while source.peek().map_or(false, |sc| is_diacritic(*sc)) {
+                out.push(source.next().unwrap());
+            }
+
+            if source.peek() == Some(&c) {
+                out.push(source.next().unwrap());
+                while source.peek().map_or(false, |sc| is_diacritic(*sc)) {
+                    out.push(source.next().unwrap());
+                }
+            } else {
+                out.push(c);
+            }
+
+            pos += c.len_utf8();
+        }
+
+        result.push(out);
+    }
+    result
 }
 
 pub fn levenshtein(a: &str, b: &str) -> usize {
