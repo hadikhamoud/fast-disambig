@@ -233,6 +233,44 @@ impl From<ScoredAnalysis> for PyScoredAnalysis {
     }
 }
 
+#[pyclass]
+#[derive(Clone)]
+pub struct DisambiguatedWord {
+    #[pyo3(get)]
+    word: String,
+    #[pyo3(get)]
+    analyses: Vec<PyScoredAnalysis>,
+}
+
+#[pymethods]
+impl DisambiguatedWord {
+    fn __getitem__(&self, idx: isize) -> PyResult<PyObject> {
+        Python::with_gil(|py| match idx {
+            0 | -2 => Ok(self.word.clone().into_pyobject(py)?.into_any().unbind()),
+            1 | -1 => Ok(self.analyses.clone().into_pyobject(py)?.into_any().unbind()),
+            _ => Err(pyo3::exceptions::PyIndexError::new_err(
+                "index out of range",
+            )),
+        })
+    }
+
+    fn __len__(&self) -> usize {
+        2
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "DisambiguatedWord(word='{}', analyses=[{}])",
+            self.word,
+            self.analyses
+                .iter()
+                .map(|a| a.__repr__())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
 #[pyfunction]
 #[pyo3(signature = (sentence, db, model, backoff="NOAN_PROP", top=1))]
 fn disambiguate(
@@ -241,18 +279,20 @@ fn disambiguate(
     model: &PyMLEModel,
     backoff: &str,
     top: usize,
-) -> PyResult<Vec<Vec<PyScoredAnalysis>>> {
+) -> PyResult<Vec<DisambiguatedWord>> {
     let refs: Vec<&str> = sentence.iter().map(|s| s.as_str()).collect();
     let results = mle::disambiguate(&refs, &db.inner, &model.inner, backoff, top)
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-    Ok(results
-        .into_iter()
-        .map(|word_analyses| {
-            word_analyses
+    Ok(refs
+        .iter()
+        .zip(results.into_iter())
+        .map(|(word, word_analyses)| DisambiguatedWord {
+            word: word.to_string(),
+            analyses: word_analyses
                 .into_iter()
                 .map(PyScoredAnalysis::from)
-                .collect()
+                .collect(),
         })
         .collect())
 }
@@ -268,6 +308,7 @@ fn fast_disambig(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMorphologyDB>()?;
     m.add_class::<PyMLEModel>()?;
     m.add_class::<PyScoredAnalysis>()?;
+    m.add_class::<DisambiguatedWord>()?;
     m.add_function(wrap_pyfunction!(disambiguate, m)?)?;
     m.add_function(wrap_pyfunction!(tokenize, m)?)?;
     Ok(())
