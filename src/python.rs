@@ -324,6 +324,8 @@ fn stem(
         scheme,
         preserve_diacritics,
         backoff,
+        None,
+        0,
     )
     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
 }
@@ -400,25 +402,36 @@ impl MLEDisambiguator {
 pub struct Stemmer {
     db: MorphologyDB,
     model: HashMap<String, ScoredAnalysis>,
+    cache: Option<HashMap<String, Vec<ScoredAnalysis>>>,
+    max_cache_size: usize,
 }
 
 #[pymethods]
 impl Stemmer {
     #[new]
-    #[pyo3(signature = (name="calima-msa-r13"))]
-    fn new(name: &str) -> PyResult<Self> {
+    #[pyo3(signature = (name="calima-msa-r13", cache_size=100000))]
+    fn new(name: &str, cache_size: usize) -> PyResult<Self> {
         let db_path = ensure_resource(&format!("morphology_db/{}", name))?;
         let mle_path = ensure_resource(&format!("disambig_mle/{}", name))?;
         let db = MorphologyDB::load(db_path)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let model = mle::load_mle_model(mle_path)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        Ok(Stemmer { db, model })
+        Ok(Stemmer {
+            db,
+            model,
+            cache: if cache_size > 0 {
+                Some(HashMap::new())
+            } else {
+                None
+            },
+            max_cache_size: cache_size,
+        })
     }
 
     #[pyo3(signature = (text, sep="[+]", scheme="d3tok", preserve_diacritics=false, backoff="NOAN_PROP"))]
     fn stem(
-        &self,
+        &mut self,
         text: &str,
         sep: &str,
         scheme: &str,
@@ -433,8 +446,21 @@ impl Stemmer {
             scheme,
             preserve_diacritics,
             backoff,
+            self.cache.as_mut(),
+            self.max_cache_size,
         )
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    fn clear_cache(&mut self) {
+        if let Some(c) = &mut self.cache {
+            c.clear();
+        }
+    }
+
+    #[getter]
+    fn cache_size(&self) -> usize {
+        self.cache.as_ref().map_or(0, |c| c.len())
     }
 }
 

@@ -3,7 +3,9 @@ use crate::mle;
 use crate::morphology_db::MorphologyDB;
 use crate::utils;
 use anyhow::Result;
+use rayon::prelude::*;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 fn get_scheme_field<'a>(analysis: &'a ScoredAnalysis, scheme: &str) -> &'a str {
     match scheme {
@@ -34,6 +36,8 @@ pub fn stem(
     scheme: &str,
     preserve_diacritics: bool,
     backoff: &str,
+    cache: Option<&mut HashMap<String, Vec<ScoredAnalysis>>>,
+    max_cache_size: usize,
 ) -> Result<String> {
     let text = text.replace('\u{0640}', "");
     let text = utils::RE_ZERO_WIDTH.replace_all(&text, "").to_string();
@@ -46,7 +50,44 @@ pub fn stem(
         .map(|s| s.as_str())
         .collect();
 
-    let disambig_results = mle::disambiguate(&word_tokens, db, mle_model, backoff, 1)?;
+    let dediac_words: Vec<String> = word_tokens
+        .iter()
+        .map(|w| utils::dediac_ar(w).unwrap_or_default())
+        .collect();
+
+    let mut local_cache: HashMap<String, Vec<ScoredAnalysis>> = HashMap::new();
+    let cache = match cache {
+        Some(c) => {
+            if max_cache_size > 0 && c.len() > max_cache_size {
+                c.clear();
+            }
+            c
+        }
+        None => &mut local_cache,
+    };
+
+    let mut uncached: Vec<&str> = Vec::new();
+    let mut seen = HashSet::new();
+    for dediac in &dediac_words {
+        if !cache.contains_key(dediac.as_str()) && seen.insert(dediac.as_str()) {
+            uncached.push(dediac.as_str());
+        }
+    }
+
+    if !uncached.is_empty() {
+        let new_results: Vec<(&str, Vec<ScoredAnalysis>)> = uncached
+            .par_iter()
+            .map(|w| {
+                let result =
+                    mle::disambiguate_word(w, db, mle_model, backoff, 1).unwrap_or_default();
+                (*w, result)
+            })
+            .collect();
+
+        for (word, result) in new_results {
+            cache.insert(word.to_string(), result);
+        }
+    }
 
     let mut output = String::new();
     let mut word_idx = 0;
@@ -58,7 +99,8 @@ pub fn stem(
         }
 
         let original = word_tokens[word_idx];
-        let word_analyses = &disambig_results[word_idx];
+        let dediac = &dediac_words[word_idx];
+        let word_analyses = cache.get(dediac.as_str()).unwrap();
         word_idx += 1;
 
         if word_analyses.is_empty() {
@@ -67,7 +109,6 @@ pub fn stem(
         }
 
         let analysis = &word_analyses[0];
-        let dediac_word = utils::dediac_ar(original)?;
         let word_has_diacritics = preserve_diacritics && utils::has_diacritics(original);
 
         let tok_raw = get_scheme_field(analysis, scheme);
@@ -77,8 +118,8 @@ pub fn stem(
         }
 
         let tok = utils::dediac_ar(tok_raw)?;
-        let ends_with_ta = dediac_word.ends_with(utils::TAA_MARBOUTA)
-            || dediac_word.ends_with(utils::TAA_MARBOUTA_DETACHED);
+        let ends_with_ta =
+            dediac.ends_with(utils::TAA_MARBOUTA) || dediac.ends_with(utils::TAA_MARBOUTA_DETACHED);
 
         let mut toks = utils::split_and_replace_sep(&tok, sep);
 
@@ -89,7 +130,7 @@ pub fn stem(
         toks = utils::merge_alef_lam(toks, sep);
         let merged = utils::merge_tokens(&toks, sep);
 
-        if merged == dediac_word && toks.len() > 1 {
+        if merged == *dediac && toks.len() > 1 {
             if word_has_diacritics {
                 toks = utils::apply_diacritics(&toks, original, sep);
             }

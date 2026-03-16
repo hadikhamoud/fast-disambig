@@ -317,6 +317,13 @@ pub fn pick_override<'a>(base: &'a str, candidate: &'a str) -> &'a str {
     }
 }
 
+pub fn apply_override(field: &mut String, candidate: &str) {
+    if candidate != "-" && !candidate.is_empty() {
+        field.clear();
+        field.push_str(candidate);
+    }
+}
+
 pub fn simple_word_tokenize(sentence: &str, mode: &str) -> Vec<String> {
     let re = match mode {
         "full" => &*RE_TOKENIZE,

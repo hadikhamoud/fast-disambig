@@ -158,65 +158,65 @@ pub fn merge_features(
 ) -> Result<ScoredAnalysis> {
     let mut result = stem.clone();
 
-    result.pos = utils::pick_override(&result.pos, &suffix.pos).to_string();
-    result.pos = utils::pick_override(&result.pos, &prefix.pos).to_string();
+    utils::apply_override(&mut result.pos, &suffix.pos);
+    utils::apply_override(&mut result.pos, &prefix.pos);
 
-    result.per = utils::pick_override(&result.per, &suffix.per).to_string();
-    result.per = utils::pick_override(&result.per, &prefix.per).to_string();
+    utils::apply_override(&mut result.per, &suffix.per);
+    utils::apply_override(&mut result.per, &prefix.per);
 
-    result.asp = utils::pick_override(&result.asp, &suffix.asp).to_string();
-    result.asp = utils::pick_override(&result.asp, &prefix.asp).to_string();
+    utils::apply_override(&mut result.asp, &suffix.asp);
+    utils::apply_override(&mut result.asp, &prefix.asp);
 
-    result.vox = utils::pick_override(&result.vox, &suffix.vox).to_string();
-    result.vox = utils::pick_override(&result.vox, &prefix.vox).to_string();
+    utils::apply_override(&mut result.vox, &suffix.vox);
+    utils::apply_override(&mut result.vox, &prefix.vox);
 
-    result.r#mod = utils::pick_override(&result.r#mod, &suffix.r#mod).to_string();
-    result.r#mod = utils::pick_override(&result.r#mod, &prefix.r#mod).to_string();
+    utils::apply_override(&mut result.r#mod, &suffix.r#mod);
+    utils::apply_override(&mut result.r#mod, &prefix.r#mod);
 
-    result.r#gen = utils::pick_override(&result.r#gen, &suffix.r#gen).to_string();
-    result.r#gen = utils::pick_override(&result.r#gen, &prefix.r#gen).to_string();
+    utils::apply_override(&mut result.r#gen, &suffix.r#gen);
+    utils::apply_override(&mut result.r#gen, &prefix.r#gen);
 
-    result.num = utils::pick_override(&result.num, &suffix.num).to_string();
-    result.num = utils::pick_override(&result.num, &prefix.num).to_string();
+    utils::apply_override(&mut result.num, &suffix.num);
+    utils::apply_override(&mut result.num, &prefix.num);
 
-    result.stt = utils::pick_override(&result.stt, &suffix.stt).to_string();
-    result.stt = utils::pick_override(&result.stt, &prefix.stt).to_string();
+    utils::apply_override(&mut result.stt, &suffix.stt);
+    utils::apply_override(&mut result.stt, &prefix.stt);
 
-    result.cas = utils::pick_override(&result.cas, &suffix.cas).to_string();
-    result.cas = utils::pick_override(&result.cas, &prefix.cas).to_string();
+    utils::apply_override(&mut result.cas, &suffix.cas);
+    utils::apply_override(&mut result.cas, &prefix.cas);
 
-    result.rat = utils::pick_override(&result.rat, &suffix.rat).to_string();
-    result.rat = utils::pick_override(&result.rat, &prefix.rat).to_string();
+    utils::apply_override(&mut result.rat, &suffix.rat);
+    utils::apply_override(&mut result.rat, &prefix.rat);
 
-    result.form_gen = utils::pick_override(&result.form_gen, &suffix.form_gen).to_string();
-    result.form_gen = utils::pick_override(&result.form_gen, &prefix.form_gen).to_string();
+    utils::apply_override(&mut result.form_gen, &suffix.form_gen);
+    utils::apply_override(&mut result.form_gen, &prefix.form_gen);
 
-    result.form_num = utils::pick_override(&result.form_num, &suffix.form_num).to_string();
-    result.form_num = utils::pick_override(&result.form_num, &prefix.form_num).to_string();
+    utils::apply_override(&mut result.form_num, &suffix.form_num);
+    utils::apply_override(&mut result.form_num, &prefix.form_num);
 
-    result.prc3 = utils::pick_override(&result.prc3, &suffix.prc3).to_string();
-    result.prc3 = utils::pick_override(&result.prc3, &prefix.prc3).to_string();
+    utils::apply_override(&mut result.prc3, &suffix.prc3);
+    utils::apply_override(&mut result.prc3, &prefix.prc3);
 
-    result.prc2 = utils::pick_override(&result.prc2, &suffix.prc2).to_string();
-    result.prc2 = utils::pick_override(&result.prc2, &prefix.prc2).to_string();
+    utils::apply_override(&mut result.prc2, &suffix.prc2);
+    utils::apply_override(&mut result.prc2, &prefix.prc2);
 
-    result.prc1 = utils::pick_override(&result.prc1, &suffix.prc1).to_string();
-    result.prc1 = utils::pick_override(&result.prc1, &prefix.prc1).to_string();
+    utils::apply_override(&mut result.prc1, &suffix.prc1);
+    utils::apply_override(&mut result.prc1, &prefix.prc1);
 
-    result.prc0 = utils::pick_override(&result.prc0, &suffix.prc0).to_string();
-    result.prc0 = utils::pick_override(&result.prc0, &prefix.prc0).to_string();
+    utils::apply_override(&mut result.prc0, &suffix.prc0);
+    utils::apply_override(&mut result.prc0, &prefix.prc0);
 
-    result.enc0 = utils::pick_override(&result.enc0, &suffix.enc0).to_string();
-    result.enc0 = utils::pick_override(&result.enc0, &prefix.enc0).to_string();
+    utils::apply_override(&mut result.enc0, &suffix.enc0);
+    utils::apply_override(&mut result.enc0, &prefix.enc0);
 
-    result.source = utils::pick_override(&result.source, &suffix.source).to_string();
-    result.source = utils::pick_override(&result.source, &prefix.source).to_string();
+    utils::apply_override(&mut result.source, &suffix.source);
+    utils::apply_override(&mut result.source, &prefix.source);
 
-    result.lex = utils::pick_override(&result.lex, &suffix.lex).to_string();
-    result.lex = utils::pick_override(&result.lex, &prefix.lex).to_string();
+    utils::apply_override(&mut result.lex, &suffix.lex);
+    utils::apply_override(&mut result.lex, &prefix.lex);
 
-    result.root = utils::pick_override(&result.root, &suffix.root).to_string();
-    result.root = utils::pick_override(&result.root, &prefix.root).to_string();
+    utils::apply_override(&mut result.root, &suffix.root);
+    utils::apply_override(&mut result.root, &prefix.root);
 
     if db.defines.contains_key("gloss") {
         result.gloss =
