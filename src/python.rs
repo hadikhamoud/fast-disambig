@@ -306,7 +306,7 @@ fn tokenize(sentence: &str, mode: &str) -> Vec<String> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (text, db, model, sep="[+]", scheme="d3tok", preserve_diacritics=false, backoff="NOAN_PROP"))]
+#[pyo3(signature = (text, db, model, sep="[+]", scheme="d3tok", preserve_diacritics=false, backoff="NOAN_PROP", fallback=None))]
 fn stem(
     text: &str,
     db: &PyMorphologyDB,
@@ -315,7 +315,12 @@ fn stem(
     scheme: &str,
     preserve_diacritics: bool,
     backoff: &str,
+    fallback: Option<Vec<String>>,
 ) -> PyResult<String> {
+    let fallback_refs: Vec<&str> = fallback
+        .as_ref()
+        .map(|v| v.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_default();
     stemmer::stem(
         text,
         &db.inner,
@@ -326,6 +331,7 @@ fn stem(
         backoff,
         None,
         0,
+        &fallback_refs,
     )
     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
 }
@@ -429,7 +435,7 @@ impl Stemmer {
         })
     }
 
-    #[pyo3(signature = (text, sep="[+]", scheme="d3tok", preserve_diacritics=false, backoff="NOAN_PROP"))]
+    #[pyo3(signature = (text, sep="[+]", scheme="d3tok", preserve_diacritics=false, backoff="NOAN_PROP", fallback=None))]
     fn stem(
         &mut self,
         text: &str,
@@ -437,7 +443,12 @@ impl Stemmer {
         scheme: &str,
         preserve_diacritics: bool,
         backoff: &str,
+        fallback: Option<Vec<String>>,
     ) -> PyResult<String> {
+        let fallback_refs: Vec<&str> = fallback
+            .as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default();
         stemmer::stem(
             text,
             &self.db,
@@ -448,6 +459,7 @@ impl Stemmer {
             backoff,
             self.cache.as_mut(),
             self.max_cache_size,
+            &fallback_refs,
         )
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }

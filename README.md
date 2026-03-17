@@ -72,6 +72,10 @@ stemmer.stem("والكتاب الجميل", sep="_")
 
 stemmer.stem("والكتاب الجميل", scheme="d3seg")
 # 'و[+]ال[+]كتاب ال[+]جميل'
+
+# fallback: try d3tok first, then d3seg, then bwtok if merge fails
+stemmer.stem("والكتاب الجميل", fallback=["d3seg", "bwtok"])
+# 'و[+]ال[+]كتاب ال[+]جميل'
 ```
 
 Disable cache:

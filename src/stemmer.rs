@@ -28,6 +28,35 @@ fn is_word_token(s: &str) -> bool {
     })
 }
 
+fn try_scheme(
+    analysis: &ScoredAnalysis,
+    scheme: &str,
+    dediac: &str,
+    sep: &str,
+    ends_with_ta: bool,
+) -> Option<Vec<String>> {
+    let tok_raw = get_scheme_field(analysis, scheme);
+    if tok_raw.is_empty() || tok_raw.contains("NOAN") {
+        return None;
+    }
+
+    let tok = utils::dediac_ar(tok_raw).ok()?;
+    let mut toks = utils::split_and_replace_sep(&tok, sep);
+
+    if ends_with_ta {
+        toks = utils::split_token_on_t(toks, sep);
+    }
+
+    toks = utils::merge_alef_lam(toks, sep);
+    let merged = utils::merge_tokens(&toks, sep);
+
+    if merged == dediac && toks.len() > 1 {
+        Some(toks)
+    } else {
+        None
+    }
+}
+
 pub fn stem(
     text: &str,
     db: &MorphologyDB,
@@ -38,6 +67,7 @@ pub fn stem(
     backoff: &str,
     cache: Option<&mut HashMap<String, Vec<ScoredAnalysis>>>,
     max_cache_size: usize,
+    fallback: &[&str],
 ) -> Result<String> {
     let text = text.replace('\u{0640}', "");
     let text = utils::RE_ZERO_WIDTH.replace_all(&text, "").to_string();
@@ -110,35 +140,32 @@ pub fn stem(
 
         let analysis = &word_analyses[0];
         let word_has_diacritics = preserve_diacritics && utils::has_diacritics(original);
-
-        let tok_raw = get_scheme_field(analysis, scheme);
-        if tok_raw.is_empty() || tok_raw.contains("NOAN") {
-            output.push_str(original);
-            continue;
-        }
-
-        let tok = utils::dediac_ar(tok_raw)?;
         let ends_with_ta =
             dediac.ends_with(utils::TAA_MARBOUTA) || dediac.ends_with(utils::TAA_MARBOUTA_DETACHED);
 
-        let mut toks = utils::split_and_replace_sep(&tok, sep);
+        let mut resolved = try_scheme(analysis, scheme, dediac, sep, ends_with_ta);
 
-        if ends_with_ta {
-            toks = utils::split_token_on_t(toks, sep);
+        if resolved.is_none() && !fallback.is_empty() {
+            for fb in fallback {
+                resolved = try_scheme(analysis, fb, dediac, sep, ends_with_ta);
+                if resolved.is_some() {
+                    break;
+                }
+            }
         }
 
-        toks = utils::merge_alef_lam(toks, sep);
-        let merged = utils::merge_tokens(&toks, sep);
-
-        if merged == *dediac && toks.len() > 1 {
-            if word_has_diacritics {
-                toks = utils::apply_diacritics(&toks, original, sep);
+        match resolved {
+            Some(mut toks) => {
+                if word_has_diacritics {
+                    toks = utils::apply_diacritics(&toks, original, sep);
+                }
+                for t in &toks {
+                    output.push_str(t);
+                }
             }
-            for t in &toks {
-                output.push_str(t);
+            None => {
+                output.push_str(original);
             }
-        } else {
-            output.push_str(original);
         }
     }
 
