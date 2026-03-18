@@ -1,5 +1,5 @@
-use crate::analyzer::ScoredAnalysis;
-use crate::supplement_stems;
+use crate::camel::analyzer::ScoredAnalysis;
+use crate::camel::supplement_stems;
 use crate::utils;
 use anyhow::Context;
 use anyhow::Result;

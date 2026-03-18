@@ -1,4 +1,4 @@
-use crate::constants;
+use crate::sina::constants::sina_asset_url;
 use crate::utils;
 use anyhow::Context;
 use anyhow::Result;
@@ -12,12 +12,12 @@ use std::path::PathBuf;
 use std::{env, fs};
 
 #[derive(Serialize, Deserialize)]
-pub struct CamelCatalogue {
-    pub packages: BTreeMap<String, CamelResource>,
+pub struct SinaCatalogue {
+    pub packages: BTreeMap<String, SinaResource>,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct CamelResource {
+pub struct SinaResource {
     name: String,
     description: String,
     private: bool,
@@ -26,19 +26,10 @@ pub struct CamelResource {
     pub path: Option<PathBuf>,
     license: Option<String>,
     size: Option<usize>,
-    sha256: Option<String>,
-    dependencies: Vec<String>,
-    files: Option<Vec<CamelResourceFile>>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CamelResourceFile {
-    path: String,
     sha256: String,
-    size: usize,
 }
 
-impl CamelResource {
+impl SinaResource {
     pub fn download(&self) -> Result<()> {
         let url = match self.url.as_ref() {
             Some(u) => u,
@@ -49,12 +40,10 @@ impl CamelResource {
             return Ok(());
         }
 
-        let camel_dir = get_or_create_camel_dir()?;
-        let dest = camel_dir.join(self.destination.as_deref().unwrap_or(&self.name));
-        let tmp_dest =
-            PathBuf::from("/tmp").join(self.destination.as_deref().unwrap_or(&self.name));
+        let sina_dir = get_or_create_sina_dir()?;
+        let dest = sina_dir.join(self.destination.as_deref().unwrap_or(&self.name));
 
-        if let Some(parent) = tmp_dest.parent() {
+        if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent).context(format!(
                 "Failed to create temp directory {}",
                 parent.display()
@@ -66,8 +55,7 @@ impl CamelResource {
             .context(format!("Failed to download '{}'", self.name))?;
 
         let mut writer = BufWriter::new(
-            File::create(&tmp_dest)
-                .context(format!("Failed to create file at {}", tmp_dest.display()))?,
+            File::create(&dest).context(format!("Failed to create file at {}", dest.display()))?,
         );
 
         let total = self.size.unwrap_or(0);
@@ -108,17 +96,13 @@ impl CamelResource {
         }
         println!();
         writer.flush().context("Failed to flush file")?;
-        fs::create_dir_all(&dest)
-            .context(format!("Failed to create destination {}", dest.display()))?;
-        utils::unzip_file(&tmp_dest, &dest)?;
-        fs::remove_file(&tmp_dest).context("Failed to clean up temp file")?;
 
         Ok(())
     }
     pub fn exists(&self) -> Result<bool> {
         println!("Checking if {} exists", self.name);
-        let camel_dir = get_or_create_camel_dir()?;
-        let path = camel_dir.join(
+        let sina_dir = get_or_create_sina_dir()?;
+        let path = sina_dir.join(
             self.destination
                 .as_ref()
                 .context("Resource has no path field")?,
@@ -129,23 +113,10 @@ impl CamelResource {
             return Ok(false);
         }
 
-        let expected_files = match self.files.as_ref() {
-            Some(files) => files,
-            None => return Ok(true),
-        };
-
-        for expected in expected_files {
-            let file_path = path.join(&expected.path);
-
-            if !file_path.exists() {
-                println!("file does not exist");
-                return Ok(false);
-            }
-            let file_as_bytes = fs::read(&file_path)?;
-            let file_hash = utils::hash(&file_as_bytes);
-            if file_hash != expected.sha256 {
-                return Ok(false);
-            }
+        let file_as_bytes = fs::read(&path)?;
+        let file_hash = utils::hash(&file_as_bytes);
+        if file_hash != self.sha256 {
+            return Ok(false);
         }
 
         println!("{} already exists, skipping...", self.name);
@@ -154,20 +125,21 @@ impl CamelResource {
     }
 }
 
-pub fn get_or_create_camel_dir() -> Result<PathBuf> {
+pub fn get_or_create_sina_dir() -> Result<PathBuf> {
     let curr_home_dir = env::home_dir().context("Home directory not found")?;
 
-    let camel_dir = curr_home_dir.join(".camel_tools/data");
-    if !camel_dir.exists() {
-        fs::create_dir_all(&camel_dir).context("Could not create the .camel_tools directory")?;
+    let sina_dir = curr_home_dir.join(".sinatools/");
+    if !sina_dir.exists() {
+        fs::create_dir_all(&sina_dir).context("Could not create the .sinatools directory")?;
     }
-    Ok(camel_dir)
+    Ok(sina_dir)
 }
 
-impl CamelCatalogue {
-    pub fn get(catalogue_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+impl SinaCatalogue {
+    pub fn get(catalogue_path: &PathBuf) -> Result<()> {
         let catalogue_file = File::create(catalogue_path)?;
-        match ureq::get(constants::CAMEL_DATA_CATALOGUE_URL).call() {
+        let catalogue_url = sina_asset_url("catalogue").context("could not find catalogue URL")?;
+        match ureq::get(catalogue_url).call() {
             Ok(mut response) => {
                 let writer = BufWriter::new(catalogue_file);
 
@@ -179,33 +151,33 @@ impl CamelCatalogue {
 
             Err(e) => {
                 eprintln!("Error getting Catalogue!");
-                Err(Box::new(e))
+                Err(anyhow::Error::new(e))
             }
         }
     }
 
-    pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
-        let camel_dir = get_or_create_camel_dir()?;
-        let catalogue_path = camel_dir.join("catalogue.json");
+    pub fn load() -> Result<Self> {
+        let sina_dir = get_or_create_sina_dir()?;
+        let catalogue_path = sina_dir.join("catalogue.json");
         if !catalogue_path.exists() {
             Self::get(&catalogue_path)?;
         }
 
         let reader = BufReader::new(File::open(catalogue_path)?);
-        let mut catalogue_json: CamelCatalogue = serde_json::from_reader(reader)
-            .context("Was not able to read the json into Camel Catalogue")?;
+        let mut catalogue_json: SinaCatalogue = serde_json::from_reader(reader)
+            .context("Was not able to read the json into Sina Catalogue")?;
         catalogue_json.packages.retain(|_, res| !res.private);
 
         for res in catalogue_json.packages.values_mut() {
             if let Some(dest) = &res.destination {
-                res.path = Some(camel_dir.join(dest));
+                res.path = Some(sina_dir.join(dest));
             }
         }
 
         Ok(catalogue_json)
     }
 
-    pub fn display(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn display(&self) -> Result<()> {
         let name_width = self.packages.keys().map(String::len).max().unwrap_or(1);
         let license_width = 10;
         let size_width = 10;
@@ -251,14 +223,11 @@ impl CamelCatalogue {
 
         Ok(())
     }
-    pub fn download_resource(&self, resource_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn download_resource(&self, resource_name: &str) -> Result<()> {
         let resource = self.packages.get(resource_name).context(format!(
             "Package '{}' not found in catalogue",
             resource_name
         ))?;
-        for dep in &resource.dependencies {
-            self.download_resource(dep)?;
-        }
         resource.download()?;
         Ok(())
     }

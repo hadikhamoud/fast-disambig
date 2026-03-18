@@ -1,10 +1,11 @@
 use anyhow::Context;
 use anyhow::Result;
+use rayon::prelude::*;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
-use crate::morphology_db;
+use crate::camel::morphology_db;
 use crate::utils;
 
 #[derive(Default, Clone, Debug, Deserialize)]
@@ -743,7 +744,7 @@ pub fn analyze_words(
     db: &morphology_db::MorphologyDB,
 ) -> Result<Vec<VecDeque<ScoredAnalysis>>> {
     words
-        .iter()
+        .par_iter()
         .map(|w| analyze(w, db, true, "NOAN_PROP"))
         .collect()
 }

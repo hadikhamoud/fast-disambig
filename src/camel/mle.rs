@@ -4,8 +4,8 @@ use serde_json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::analyzer::{self, ScoredAnalysis};
-use crate::morphology_db::MorphologyDB;
+use crate::camel::analyzer::{self, ScoredAnalysis};
+use crate::camel::morphology_db::MorphologyDB;
 use crate::utils;
 
 pub fn load_mle_model(model_path: PathBuf) -> Result<HashMap<String, ScoredAnalysis>> {

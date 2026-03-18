@@ -2,11 +2,11 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::analyzer::ScoredAnalysis;
-use crate::downloader;
-use crate::mle;
-use crate::morphology_db::MorphologyDB;
-use crate::stemmer;
+use crate::camel::analyzer::ScoredAnalysis;
+use crate::camel::downloader;
+use crate::camel::mle;
+use crate::camel::morphology_db::MorphologyDB;
+use crate::camel::stemmer;
 use crate::utils;
 
 #[pyclass]
@@ -476,8 +476,7 @@ impl Stemmer {
     }
 }
 
-#[pymodule]
-fn fast_disambig(m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMorphologyDB>()?;
     m.add_class::<PyMLEModel>()?;
     m.add_class::<PyScoredAnalysis>()?;
