@@ -1,6 +1,6 @@
 # fast-disambig
 
-Fast Arabic morphological disambiguation and stemming. Rust engine with Python bindings. Almost drop-in replacement for [CAMeL Tools](https://github.com/CAMeL-Lab/camel_tools) MLE disambiguator (support for other disambiguators soon!)
+Fast Arabic morphological disambiguation and stemming. Rust engine with Python bindings. Almost drop-in replacement for [CAMeL Tools](https://github.com/CAMeL-Lab/camel_tools) MLE disambiguator (support for other disambiguators., like sinatools, soon!)
 
 ## Benchmark
 
