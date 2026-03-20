@@ -29,6 +29,7 @@ or with uv:
 
 ```bash
 uv pip install fast-disambig
+uv add fast-disambig
 ```
 
 **Requires:** CAMeL Tools data files in `~/.camel_tools/data/`. If missing, they are downloaded automatically on first use. (camel_data CLI tool soon!)
