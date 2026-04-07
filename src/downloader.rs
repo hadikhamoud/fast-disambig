@@ -5,6 +5,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json;
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
@@ -14,6 +15,7 @@ use std::{env, fs};
 #[derive(Serialize, Deserialize)]
 pub struct CamelCatalogue {
     pub packages: BTreeMap<String, CamelResource>,
+    pub components: Value,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -72,7 +74,7 @@ impl CamelResource {
 
         let total = self.size.unwrap_or(0);
         let mut downloaded: usize = 0;
-        let bar_width: usize = 100;
+        let bar_width: usize = 60;
 
         let mut buf = [0u8; 8192];
         let mut reader = response.body_mut().as_reader();
@@ -165,6 +167,72 @@ pub fn get_or_create_camel_dir() -> Result<PathBuf> {
 }
 
 impl CamelCatalogue {
+    fn component_entry<'a>(&'a self, component_path: &[&str]) -> Result<&'a Value> {
+        let mut current = &self.components;
+        for segment in component_path {
+            current = current.get(*segment).context(format!(
+                "Component '{}' not found in catalogue",
+                component_path.join(".")
+            ))?;
+        }
+        Ok(current)
+    }
+
+    fn component_dataset_destination<'a>(
+        &'a self,
+        component_path: &[&str],
+        dataset: Option<&str>,
+    ) -> Result<&'a str> {
+        let component = self.component_entry(component_path)?;
+        let datasets = component.get("datasets").context(format!(
+            "Component '{}' has no datasets entry",
+            component_path.join(".")
+        ))?;
+        let dataset_name = match dataset {
+            Some(name) => name,
+            None => component
+                .get("default")
+                .and_then(Value::as_str)
+                .context(format!(
+                    "Component '{}' has no default dataset",
+                    component_path.join(".")
+                ))?,
+        };
+
+        datasets
+            .get(dataset_name)
+            .and_then(|value| value.get("path"))
+            .and_then(Value::as_str)
+            .context(format!(
+                "Dataset '{}' not found for component '{}'",
+                dataset_name,
+                component_path.join(".")
+            ))
+    }
+
+    pub fn ensure_component_dataset(
+        &self,
+        component_path: &[&str],
+        dataset: Option<&str>,
+    ) -> Result<PathBuf> {
+        let destination = self.component_dataset_destination(component_path, dataset)?;
+        let package_name = self
+            .packages
+            .iter()
+            .find_map(|(name, resource)| {
+                (resource.destination.as_deref() == Some(destination)).then_some(name.as_str())
+            })
+            .context(format!(
+                "No package found for destination '{}' in catalogue",
+                destination
+            ))?;
+
+        self.download_resource(package_name)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+        Ok(get_or_create_camel_dir()?.join(destination))
+    }
+
     pub fn get(catalogue_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         let catalogue_file = File::create(catalogue_path)?;
         match ureq::get(constants::CAMEL_DATA_CATALOGUE_URL).call() {

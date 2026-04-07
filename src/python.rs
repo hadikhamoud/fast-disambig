@@ -17,8 +17,8 @@ pub struct PyMorphologyDB {
 #[pymethods]
 impl PyMorphologyDB {
     #[new]
-    fn new(path: String) -> PyResult<Self> {
-        let db = MorphologyDB::load(PathBuf::from(path))
+    fn new(path_or_name: String) -> PyResult<Self> {
+        let db = MorphologyDB::load(resolve_resource_path(&path_or_name, &["MorphologyDB"])?)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(PyMorphologyDB { inner: db })
     }
@@ -32,8 +32,8 @@ pub struct PyMLEModel {
 #[pymethods]
 impl PyMLEModel {
     #[new]
-    fn new(path: String) -> PyResult<Self> {
-        let model = mle::load_mle_model(PathBuf::from(path))
+    fn new(path_or_name: String) -> PyResult<Self> {
+        let model = mle::load_mle_model(resolve_resource_path(&path_or_name, &["DisambigMLE"])?)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(PyMLEModel { inner: model })
     }
@@ -341,20 +341,30 @@ fn dediac_ar(text: &str) -> PyResult<String> {
     utils::dediac_ar(text).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
 }
 
-fn ensure_resource(name: &str) -> PyResult<PathBuf> {
+fn resolve_resource_path(path_or_name: &str, component_path: &[&str]) -> PyResult<PathBuf> {
+    let direct_path = PathBuf::from(path_or_name);
+    if direct_path.exists() {
+        return Ok(direct_path);
+    }
+
     let camel_dir = downloader::get_or_create_camel_dir()
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-    let path = camel_dir.join(name);
+    let path = camel_dir.join(path_or_name);
     if !path.exists() {
-        eprintln!("Resource '{}' not found locally, downloading...", name);
+        eprintln!(
+            "Resource '{}' not found locally, downloading...",
+            path_or_name
+        );
         let catalogue = downloader::CamelCatalogue::load()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        catalogue.download_resource(name).map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Failed to download '{}': {}",
-                name, e
-            ))
-        })?;
+        return catalogue
+            .ensure_component_dataset(component_path, Some(path_or_name))
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "Failed to download '{}': {}",
+                    path_or_name, e
+                ))
+            });
     }
     Ok(path)
 }
@@ -370,8 +380,8 @@ impl MLEDisambiguator {
     #[new]
     #[pyo3(signature = (name="calima-msa-r13"))]
     fn new(name: &str) -> PyResult<Self> {
-        let db_path = ensure_resource(&format!("morphology_db/{}", name))?;
-        let mle_path = ensure_resource(&format!("disambig_mle/{}", name))?;
+        let db_path = resolve_resource_path(name, &["MorphologyDB"])?;
+        let mle_path = resolve_resource_path(name, &["DisambigMLE"])?;
         let db = MorphologyDB::load(db_path)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let model = mle::load_mle_model(mle_path)
@@ -417,8 +427,8 @@ impl Stemmer {
     #[new]
     #[pyo3(signature = (name="calima-msa-r13", cache_size=100000))]
     fn new(name: &str, cache_size: usize) -> PyResult<Self> {
-        let db_path = ensure_resource(&format!("morphology_db/{}", name))?;
-        let mle_path = ensure_resource(&format!("disambig_mle/{}", name))?;
+        let db_path = resolve_resource_path(name, &["MorphologyDB"])?;
+        let mle_path = resolve_resource_path(name, &["DisambigMLE"])?;
         let db = MorphologyDB::load(db_path)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let model = mle::load_mle_model(mle_path)
