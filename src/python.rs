@@ -26,7 +26,7 @@ impl PyMorphologyDB {
 
     #[staticmethod]
     fn builtin_db(name: &str) -> PyResult<Self> {
-        let db_path = ensure_resource(&format!("morphology_db/{}", name))?;
+        let db_path = resolve_resource_path(name, &["MorphologyDB"])?;
         let db = MorphologyDB::load(db_path)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(PyMorphologyDB { inner: db })
@@ -651,7 +651,7 @@ impl Analyzer {
     #[new]
     #[pyo3(signature = (dbname="calima-msa-r13", backoff="NOAN_PROP", strict_digit=false))]
     fn new(dbname: &str, backoff: &str, strict_digit: bool) -> PyResult<Self> {
-        let db_path = ensure_resource(&format!("morphology_db/{}", dbname))?;
+        let db_path = resolve_resource_path(dbname, &["MorphologyDB"])?;
         let db = MorphologyDB::load(db_path)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(Analyzer {
