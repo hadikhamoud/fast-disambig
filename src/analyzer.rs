@@ -68,6 +68,10 @@ pub struct ScoredAnalysis {
     #[serde(default)]
     pub enc0: String,
     #[serde(default)]
+    pub enc1: String,
+    #[serde(default)]
+    pub enc2: String,
+    #[serde(default)]
     pub d1seg: String,
     #[serde(default)]
     pub d2seg: String,
@@ -208,6 +212,12 @@ pub fn merge_features(
 
     utils::apply_override(&mut result.enc0, &suffix.enc0);
     utils::apply_override(&mut result.enc0, &prefix.enc0);
+
+    utils::apply_override(&mut result.enc1, &suffix.enc1);
+    utils::apply_override(&mut result.enc1, &prefix.enc1);
+
+    utils::apply_override(&mut result.enc2, &suffix.enc2);
+    utils::apply_override(&mut result.enc2, &prefix.enc2);
 
     utils::apply_override(&mut result.source, &suffix.source);
     utils::apply_override(&mut result.source, &prefix.source);
@@ -526,7 +536,7 @@ pub fn analyze(
         result.stem = word.to_string();
         result.stemgloss = word.to_string();
         result.lex = word.to_string();
-        result.bw = word.to_string();
+        result.bw = format!("{}/NOUN_NUM", word);
         result.gloss = word.to_string();
         result.source = "digit".to_string();
 
@@ -539,7 +549,7 @@ pub fn analyze(
         }
 
         if db.defines.contains_key("ud") {
-            result.ud = "NOM".to_string();
+            result.ud = "NUM".to_string();
         }
 
         if db.defines.contains_key("form_gen") && result.r#gen == "-" {
@@ -744,6 +754,6 @@ pub fn analyze_words(
 ) -> Result<Vec<VecDeque<ScoredAnalysis>>> {
     words
         .iter()
-        .map(|w| analyze(w, db, true, "NOAN_PROP"))
+        .map(|w| analyze(w, db, false, "NOAN_PROP"))
         .collect()
 }

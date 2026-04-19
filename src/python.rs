@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::analyzer;
 use crate::analyzer::ScoredAnalysis;
 use crate::downloader;
 use crate::mle;
@@ -19,6 +20,14 @@ impl PyMorphologyDB {
     #[new]
     fn new(path_or_name: String) -> PyResult<Self> {
         let db = MorphologyDB::load(resolve_resource_path(&path_or_name, &["MorphologyDB"])?)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(PyMorphologyDB { inner: db })
+    }
+
+    #[staticmethod]
+    fn builtin_db(name: &str) -> PyResult<Self> {
+        let db_path = ensure_resource(&format!("morphology_db/{}", name))?;
+        let db = MorphologyDB::load(db_path)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(PyMorphologyDB { inner: db })
     }
@@ -161,6 +170,14 @@ impl PyScoredAnalysis {
         &self.inner.enc0
     }
     #[getter]
+    fn enc1(&self) -> &str {
+        &self.inner.enc1
+    }
+    #[getter]
+    fn enc2(&self) -> &str {
+        &self.inner.enc2
+    }
+    #[getter]
     fn d1seg(&self) -> &str {
         &self.inner.d1seg
     }
@@ -226,6 +243,142 @@ impl PyScoredAnalysis {
             "ScoredAnalysis(score={}, diac='{}', lex='{}', pos='{}')",
             self.inner.score, self.inner.diac, self.inner.lex, self.inner.pos
         )
+    }
+
+    fn __getitem__(&self, key: &str) -> PyResult<PyObject> {
+        Python::with_gil(|py| {
+            let val = self._get_field(key);
+            match val {
+                FieldValue::Str(s) => Ok(s.into_pyobject(py)?.into_any().unbind()),
+                FieldValue::F64(f) => Ok(f.into_pyobject(py)?.into_any().unbind()),
+                FieldValue::None => Err(pyo3::exceptions::PyKeyError::new_err(key.to_string())),
+            }
+        })
+    }
+
+    #[pyo3(signature = (key, default=None))]
+    fn get(&self, py: Python, key: &str, default: Option<PyObject>) -> PyObject {
+        let val = self._get_field(key);
+        match val {
+            FieldValue::Str(s) => s.into_pyobject(py).unwrap().into_any().unbind(),
+            FieldValue::F64(f) => f.into_pyobject(py).unwrap().into_any().unbind(),
+            FieldValue::None => default.unwrap_or_else(|| py.None()),
+        }
+    }
+
+    fn __contains__(&self, key: &str) -> bool {
+        !matches!(self._get_field(key), FieldValue::None)
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        vec![
+            "score",
+            "category",
+            "source",
+            "diac",
+            "lex",
+            "bw",
+            "gloss",
+            "stem",
+            "stemcat",
+            "stemgloss",
+            "catib6",
+            "ud",
+            "per",
+            "asp",
+            "vox",
+            "mod",
+            "gen",
+            "num",
+            "stt",
+            "cas",
+            "rat",
+            "form_gen",
+            "form_num",
+            "pos",
+            "prc3",
+            "prc2",
+            "prc1",
+            "prc0",
+            "enc0",
+            "enc1",
+            "enc2",
+            "d1seg",
+            "d2seg",
+            "d3seg",
+            "atbseg",
+            "d1tok",
+            "d2tok",
+            "d3tok",
+            "atbtok",
+            "bwtok",
+            "root",
+            "pattern",
+            "caphi",
+            "pos_logprob",
+            "lex_logprob",
+            "pos_lex_logprob",
+        ]
+    }
+}
+
+enum FieldValue<'a> {
+    Str(&'a str),
+    F64(f64),
+    None,
+}
+
+impl PyScoredAnalysis {
+    fn _get_field(&self, key: &str) -> FieldValue {
+        match key {
+            "score" => FieldValue::F64(self.inner.score),
+            "category" => FieldValue::Str(&self.inner.category),
+            "source" => FieldValue::Str(&self.inner.source),
+            "diac" => FieldValue::Str(&self.inner.diac),
+            "lex" => FieldValue::Str(&self.inner.lex),
+            "bw" => FieldValue::Str(&self.inner.bw),
+            "gloss" => FieldValue::Str(&self.inner.gloss),
+            "stem" => FieldValue::Str(&self.inner.stem),
+            "stemcat" => FieldValue::Str(&self.inner.stemcat),
+            "stemgloss" => FieldValue::Str(&self.inner.stemgloss),
+            "catib6" => FieldValue::Str(&self.inner.catib6),
+            "ud" => FieldValue::Str(&self.inner.ud),
+            "per" => FieldValue::Str(&self.inner.per),
+            "asp" => FieldValue::Str(&self.inner.asp),
+            "vox" => FieldValue::Str(&self.inner.vox),
+            "mod" => FieldValue::Str(&self.inner.r#mod),
+            "gen" => FieldValue::Str(&self.inner.r#gen),
+            "num" => FieldValue::Str(&self.inner.num),
+            "stt" => FieldValue::Str(&self.inner.stt),
+            "cas" => FieldValue::Str(&self.inner.cas),
+            "rat" => FieldValue::Str(&self.inner.rat),
+            "form_gen" => FieldValue::Str(&self.inner.form_gen),
+            "form_num" => FieldValue::Str(&self.inner.form_num),
+            "pos" => FieldValue::Str(&self.inner.pos),
+            "prc3" => FieldValue::Str(&self.inner.prc3),
+            "prc2" => FieldValue::Str(&self.inner.prc2),
+            "prc1" => FieldValue::Str(&self.inner.prc1),
+            "prc0" => FieldValue::Str(&self.inner.prc0),
+            "enc0" => FieldValue::Str(&self.inner.enc0),
+            "enc1" => FieldValue::Str(&self.inner.enc1),
+            "enc2" => FieldValue::Str(&self.inner.enc2),
+            "d1seg" => FieldValue::Str(&self.inner.d1seg),
+            "d2seg" => FieldValue::Str(&self.inner.d2seg),
+            "d3seg" => FieldValue::Str(&self.inner.d3seg),
+            "atbseg" => FieldValue::Str(&self.inner.atbseg),
+            "d1tok" => FieldValue::Str(&self.inner.d1tok),
+            "d2tok" => FieldValue::Str(&self.inner.d2tok),
+            "d3tok" => FieldValue::Str(&self.inner.d3tok),
+            "atbtok" => FieldValue::Str(&self.inner.atbtok),
+            "bwtok" => FieldValue::Str(&self.inner.bwtok),
+            "root" => FieldValue::Str(&self.inner.root),
+            "pattern" => FieldValue::Str(&self.inner.pattern),
+            "caphi" => FieldValue::Str(&self.inner.caphi),
+            "pos_logprob" => FieldValue::F64(self.inner.pos_logprob),
+            "lex_logprob" => FieldValue::F64(self.inner.lex_logprob),
+            "pos_lex_logprob" => FieldValue::F64(self.inner.pos_lex_logprob),
+            _ => FieldValue::None,
+        }
     }
 }
 
@@ -486,6 +639,36 @@ impl Stemmer {
     }
 }
 
+#[pyclass]
+pub struct Analyzer {
+    db: MorphologyDB,
+    backoff: String,
+    strict_digit: bool,
+}
+
+#[pymethods]
+impl Analyzer {
+    #[new]
+    #[pyo3(signature = (dbname="calima-msa-r13", backoff="NOAN_PROP", strict_digit=false))]
+    fn new(dbname: &str, backoff: &str, strict_digit: bool) -> PyResult<Self> {
+        let db_path = ensure_resource(&format!("morphology_db/{}", dbname))?;
+        let db = MorphologyDB::load(db_path)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(Analyzer {
+            db,
+            backoff: backoff.to_string(),
+            strict_digit,
+        })
+    }
+
+    #[pyo3(signature = (word))]
+    fn analyze(&self, word: &str) -> PyResult<Vec<PyScoredAnalysis>> {
+        let results = analyzer::analyze(word, &self.db, self.strict_digit, &self.backoff)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(results.into_iter().map(PyScoredAnalysis::from).collect())
+    }
+}
+
 #[pymodule]
 fn fast_disambig(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMorphologyDB>()?;
@@ -494,6 +677,7 @@ fn fast_disambig(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DisambiguatedWord>()?;
     m.add_class::<MLEDisambiguator>()?;
     m.add_class::<Stemmer>()?;
+    m.add_class::<Analyzer>()?;
     m.add_function(wrap_pyfunction!(disambiguate, m)?)?;
     m.add_function(wrap_pyfunction!(tokenize, m)?)?;
     m.add_function(wrap_pyfunction!(stem, m)?)?;

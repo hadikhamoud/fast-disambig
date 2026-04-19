@@ -15,7 +15,10 @@ pub fn load_mle_model(model_path: PathBuf) -> Result<HashMap<String, ScoredAnaly
         model_path
     };
     let json_str = std::fs::read_to_string(model_path)?;
-    let mle_model: HashMap<String, ScoredAnalysis> = serde_json::from_str(&json_str)?;
+    let mut mle_model: HashMap<String, ScoredAnalysis> = serde_json::from_str(&json_str)?;
+    for analysis in mle_model.values_mut() {
+        analysis.lex = utils::strip_lex(&analysis.lex)?;
+    }
     Ok(mle_model)
 }
 
@@ -34,6 +37,8 @@ pub fn score_analysis(analysis: &ScoredAnalysis, reference: &ScoredAnalysis) -> 
     score += (analysis.asp == reference.asp) as u8 as f64;
     score += (analysis.cas == reference.cas) as u8 as f64;
     score += (analysis.enc0 == reference.enc0) as u8 as f64;
+    score += (analysis.enc1 == reference.enc1) as u8 as f64;
+    score += (analysis.enc2 == reference.enc2) as u8 as f64;
     score += (analysis.r#gen == reference.r#gen) as u8 as f64;
     score += (analysis.r#mod == reference.r#mod) as u8 as f64;
     score += (analysis.num == reference.num) as u8 as f64;
@@ -64,7 +69,7 @@ pub fn disambiguate_word(
 ) -> Result<Vec<ScoredAnalysis>> {
     let word = utils::dediac_ar(word)?;
 
-    let mut analyses: Vec<ScoredAnalysis> = analyzer::analyze(&word, db, true, backoff)?
+    let mut analyses: Vec<ScoredAnalysis> = analyzer::analyze(&word, db, false, backoff)?
         .into_iter()
         .collect();
 
@@ -107,6 +112,17 @@ pub fn disambiguate_word(
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    b.pos_lex_logprob
+                        .partial_cmp(&a.pos_lex_logprob)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| {
+                    b.lex_logprob
+                        .partial_cmp(&a.lex_logprob)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| a.diac.cmp(&b.diac))
         });
     }
 

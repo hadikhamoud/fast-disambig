@@ -402,6 +402,8 @@ impl MorphologyDB {
             cas: "u".to_string(),
             rat: "i".to_string(),
             enc0: "0".to_string(),
+            enc1: "0".to_string(),
+            enc2: "0".to_string(),
             prc0: "0".to_string(),
             prc1: "0".to_string(),
             prc2: "0".to_string(),
