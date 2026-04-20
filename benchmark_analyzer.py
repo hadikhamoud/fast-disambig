@@ -61,7 +61,7 @@ model_config_path = Path(model_info.path, "default_config.json")
 with open(model_config_path) as f:
     model_config = json.load(f)
 
-rust_analyzer = fast_disambig.Analyzer("calima-msa-r13")
+rust_analyzer = fast_disambig.camel.Analyzer("calima-msa-r13")
 
 bert_rust = BERTUnfactoredDisambiguator(
     str(model_info.path),

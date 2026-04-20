@@ -1,10 +1,10 @@
 use anyhow::Context;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use fast_disambig::downloader;
-use fast_disambig::mle;
-use fast_disambig::mle::disambiguate;
-use fast_disambig::morphology_db;
+use fast_disambig::camel::downloader;
+use fast_disambig::camel::mle;
+use fast_disambig::camel::mle::disambiguate;
+use fast_disambig::camel::morphology_db;
 use fast_disambig::utils;
 use std::time::Instant;
 

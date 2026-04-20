@@ -27,7 +27,7 @@ print()
 print("=" * 60)
 print("fast-disambig (no cache)")
 print("=" * 60)
-stemmer = fast_disambig.Stemmer(cache_size=0)
+stemmer = fast_disambig.camel.Stemmer(cache_size=0)
 
 start = time.time()
 for t in tqdm(texts, desc="fast-disambig"):

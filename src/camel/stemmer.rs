@@ -1,7 +1,7 @@
-use crate::analyzer::ScoredAnalysis;
-use crate::mle;
-use crate::morphology_db::MorphologyDB;
-use crate::supplement_stems;
+use crate::camel::analyzer::ScoredAnalysis;
+use crate::camel::mle;
+use crate::camel::morphology_db::MorphologyDB;
+use crate::camel::supplement_stems;
 use crate::utils;
 use anyhow::Result;
 use rayon::prelude::*;

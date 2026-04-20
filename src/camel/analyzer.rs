@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
-use crate::morphology_db;
+use crate::camel::morphology_db;
 use crate::utils;
 
 #[derive(Default, Clone, Debug, Deserialize)]

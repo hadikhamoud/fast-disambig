@@ -50,7 +50,7 @@ maturin develop --release
 ```python
 import fast_disambig
 
-dis = fast_disambig.MLEDisambiguator("calima-msa-r13")  
+dis = fast_disambig.camel.MLEDisambiguator("calima-msa-r13")  
 
 results = dis.disambiguate(["والكتاب", "الجميل"])
 ```
@@ -58,7 +58,7 @@ results = dis.disambiguate(["والكتاب", "الجميل"])
 ### Stemmer
 
 ```python
-stemmer = fast_disambig.Stemmer()  
+stemmer = fast_disambig.camel.Stemmer()  
 
 # light stemming 
 
@@ -81,15 +81,15 @@ stemmer.stem("والكتاب الجميل", fallback=["d3seg", "bwtok"])
 
 Disable cache:
 ```python
-stemmer = fast_disambig.Stemmer(cache_size=0)
+stemmer = fast_disambig.camel.Stemmer(cache_size=0)
 ```
 
 ### Tokenizer
 
 ```python
-fast_disambig.tokenize("والكتاب الجميل", "full")
+fast_disambig.camel.tokenize("والكتاب الجميل", "full")
 # ['والكتاب', ' ', 'الجميل']
 
-fast_disambig.tokenize("Hello عالم 123!", "full")
+fast_disambig.camel.tokenize("Hello عالم 123!", "full")
 # ['Hello', ' ', 'عالم', ' ', '123', '!']
 ```

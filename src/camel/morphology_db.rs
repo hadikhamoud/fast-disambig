@@ -1,4 +1,4 @@
-use crate::analyzer::ScoredAnalysis;
+use crate::camel::analyzer::ScoredAnalysis;
 use crate::utils;
 use anyhow::Context;
 use anyhow::Result;
