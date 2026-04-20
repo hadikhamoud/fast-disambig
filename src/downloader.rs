@@ -76,6 +76,8 @@ impl CamelResource {
         let mut downloaded: usize = 0;
         let bar_width: usize = 60;
 
+        println!("Downloading {}...", self.name);
+
         let mut buf = [0u8; 8192];
         let mut reader = response.body_mut().as_reader();
         loop {
@@ -118,7 +120,6 @@ impl CamelResource {
         Ok(())
     }
     pub fn exists(&self) -> Result<bool> {
-        println!("Checking if {} exists", self.name);
         let camel_dir = get_or_create_camel_dir()?;
         let path = camel_dir.join(
             self.destination
@@ -127,7 +128,6 @@ impl CamelResource {
         );
 
         if !path.exists() {
-            println!("directory does not exist in the first place");
             return Ok(false);
         }
 
@@ -140,7 +140,6 @@ impl CamelResource {
             let file_path = path.join(&expected.path);
 
             if !file_path.exists() {
-                println!("file does not exist");
                 return Ok(false);
             }
             let file_as_bytes = fs::read(&file_path)?;
@@ -149,8 +148,6 @@ impl CamelResource {
                 return Ok(false);
             }
         }
-
-        println!("{} already exists, skipping...", self.name);
 
         Ok(true)
     }

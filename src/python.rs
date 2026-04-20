@@ -504,10 +504,6 @@ fn resolve_resource_path(path_or_name: &str, component_path: &[&str]) -> PyResul
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
     let path = camel_dir.join(path_or_name);
     if !path.exists() {
-        eprintln!(
-            "Resource '{}' not found locally, downloading...",
-            path_or_name
-        );
         let catalogue = downloader::CamelCatalogue::load()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         return catalogue
