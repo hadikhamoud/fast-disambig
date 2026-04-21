@@ -1,4 +1,5 @@
 use crate::camel::analyzer::ScoredAnalysis;
+use crate::camel::supplement_stems;
 use crate::utils;
 use anyhow::Context;
 use anyhow::Result;
@@ -373,6 +374,12 @@ impl MorphologyDB {
 
         db.max_prefix_size = db.prefix_hash.keys().map(String::len).max().unwrap_or(0);
         db.max_suffix_size = db.suffix_hash.keys().map(String::len).max().unwrap_or(0);
+
+        db.inject_supplementary_stems(
+            supplement_stems::SUPPLEMENT_AL_T,
+            supplement_stems::SUPPLEMENT_AL,
+            supplement_stems::SUPPLEMENT_T,
+        );
 
         Ok(db)
     }

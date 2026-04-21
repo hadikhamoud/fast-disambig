@@ -1,20 +1,11 @@
 use crate::camel::analyzer::ScoredAnalysis;
 use crate::camel::mle;
 use crate::camel::morphology_db::MorphologyDB;
-use crate::camel::supplement_stems;
 use crate::utils;
 use anyhow::Result;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::LazyLock;
-
-static NOAN_SET_AL_T: LazyLock<HashSet<&'static str>> =
-    LazyLock::new(|| HashSet::from_iter(supplement_stems::SUPPLEMENT_AL_T.iter().copied()));
-static NOAN_SET_AL: LazyLock<HashSet<&'static str>> =
-    LazyLock::new(|| HashSet::from_iter(supplement_stems::SUPPLEMENT_AL.iter().copied()));
-static NOAN_SET_T: LazyLock<HashSet<&'static str>> =
-    LazyLock::new(|| HashSet::from_iter(supplement_stems::SUPPLEMENT_T.iter().copied()));
 
 fn get_scheme_field<'a>(analysis: &'a ScoredAnalysis, scheme: &str) -> &'a str {
     match scheme {
@@ -35,40 +26,6 @@ fn is_word_token(s: &str) -> bool {
     s.chars().next().map_or(false, |c| {
         c.is_alphanumeric() || ('\u{0600}'..='\u{FEFF}').contains(&c)
     })
-}
-
-fn process_noan_word(word: &str, sep: &str) -> Vec<String> {
-    let starts_with_al = word.starts_with("ال");
-    let last_char = word.chars().last();
-    let ends_with_ta = matches!(last_char, Some(utils::TAA_MARBOUTA | utils::TAA_MARBOUTA_DETACHED));
-
-    if starts_with_al && ends_with_ta && NOAN_SET_AL_T.contains(word) {
-        if let Some(last_char) = last_char {
-            let prefix_len = "ال".len();
-            let last_len = last_char.len_utf8();
-            return vec![
-                format!("ال{}", sep),
-                word[prefix_len..word.len() - last_len].to_string(),
-                format!("{}{}", sep, last_char),
-            ];
-        }
-    }
-
-    if starts_with_al && NOAN_SET_AL.contains(word) {
-        return vec![format!("ال{}", sep), word["ال".len()..].to_string()];
-    }
-
-    if ends_with_ta && NOAN_SET_T.contains(word) {
-        if let Some(last_char) = last_char {
-            let last_len = last_char.len_utf8();
-            return vec![
-                word[..word.len() - last_len].to_string(),
-                format!("{}{}", sep, last_char),
-            ];
-        }
-    }
-
-    vec![word.to_string()]
 }
 
 fn try_scheme(
@@ -115,7 +72,7 @@ pub fn stem(
     let text = text.replace('\u{0640}', "");
     let text = utils::RE_ZERO_WIDTH.replace_all(&text, "").to_string();
 
-    let all_tokens = utils::simple_word_tokenize(&text, "compact");
+    let all_tokens = utils::simple_word_tokenize(&text, "full");
 
     let word_tokens: Vec<&str> = all_tokens
         .iter()
@@ -185,46 +142,6 @@ pub fn stem(
         let word_has_diacritics = preserve_diacritics && utils::has_diacritics(original);
         let ends_with_ta =
             dediac.ends_with(utils::TAA_MARBOUTA) || dediac.ends_with(utils::TAA_MARBOUTA_DETACHED);
-        let tok_raw = get_scheme_field(analysis, scheme);
-        let tok = if tok_raw.is_empty() {
-            None
-        } else {
-            Some(utils::dediac_ar(tok_raw)?)
-        };
-
-        if ends_with_ta {
-            if let Some(tok) = tok.as_deref() {
-                let mut toks = tok.split('_').map(str::to_string).collect::<Vec<_>>();
-                toks = utils::split_token_on_t(toks, sep);
-                toks = utils::split_and_replace_sep(&toks.join("_"), sep);
-                toks = utils::merge_alef_lam(toks, sep);
-                let merged = utils::merge_tokens(&toks, sep);
-
-                if merged == *dediac && toks.len() > 1 {
-                    if word_has_diacritics {
-                        toks = utils::apply_diacritics(&toks, original, sep);
-                    }
-                    for t in &toks {
-                        output.push_str(t);
-                    }
-                    continue;
-                } else {
-                    output.push_str(original);
-                    continue;
-                }
-            }
-        }
-
-        if tok.as_ref().is_none_or(|t| t.contains("NOAN")) {
-            let mut toks = process_noan_word(dediac, sep);
-            if word_has_diacritics {
-                toks = utils::apply_diacritics(&toks, original, sep);
-            }
-            for t in &toks {
-                output.push_str(t);
-            }
-            continue;
-        }
 
         let mut resolved = try_scheme(analysis, scheme, dediac, sep, ends_with_ta);
 
