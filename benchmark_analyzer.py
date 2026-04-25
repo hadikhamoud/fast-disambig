@@ -29,7 +29,7 @@ total_chars = sum(len(t) for t in texts)
 print(f"Rows: {len(texts)}, Total chars: {total_chars:,}")
 print()
 
-# Tokenize all texts into sentences (split on newlines, tokenize each)
+
 sentences = []
 for t in texts:
     tokens = simple_word_tokenize(t)
@@ -40,7 +40,7 @@ print(f"Sentences: {len(sentences)}, Total words: {total_words:,}")
 print()
 
 
-# ── Load BERT disambiguator with camel analyzer ──
+
 print("Loading BERT disambiguator with CAMeL analyzer...")
 bert_camel = BERTUnfactoredDisambiguator.pretrained(
     "msa", use_gpu=False, pretrained_cache=False, ranking_cache_size=0
@@ -48,7 +48,7 @@ bert_camel = BERTUnfactoredDisambiguator.pretrained(
 print("Loaded.")
 print()
 
-# ── Load BERT disambiguator with Rust analyzer ──
+
 print("Loading BERT disambiguator with Rust analyzer...")
 # Get the same config as pretrained but swap the analyzer
 from camel_tools.data import CATALOGUE
