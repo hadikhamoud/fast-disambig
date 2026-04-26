@@ -50,7 +50,6 @@ print()
 
 
 print("Loading BERT disambiguator with Rust analyzer...")
-# Get the same config as pretrained but swap the analyzer
 from camel_tools.data import CATALOGUE
 import json
 from pathlib import Path
@@ -75,7 +74,6 @@ bert_rust = BERTUnfactoredDisambiguator(
 print("Loaded.")
 print()
 
-# ── Benchmark BERT + CAMeL analyzer ──
 print("=" * 60)
 print("BERT + CAMeL Analyzer")
 print("=" * 60)
@@ -91,7 +89,6 @@ print(f"  Time:      {elapsed_camel:,.0f}ms")
 print(f"  Words/sec: {total_words / elapsed_camel * 1000:,.0f}")
 print()
 
-# ── Benchmark BERT + Rust analyzer ──
 print("=" * 60)
 print("BERT + Rust Analyzer")
 print("=" * 60)
@@ -107,7 +104,6 @@ print(f"  Time:      {elapsed_rust:,.0f}ms")
 print(f"  Words/sec: {total_words / elapsed_rust * 1000:,.0f}")
 print()
 
-# ── Summary ──
 print("=" * 60)
 print(f"Speedup: {elapsed_camel / elapsed_rust:.1f}x")
 print("=" * 60)
