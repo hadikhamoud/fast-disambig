@@ -23,7 +23,6 @@ total_chars = sum(len(t) for t in texts)
 print(f"Rows: {len(texts)}, Total chars: {total_chars:,}")
 print()
 
-# ── fast-disambig (no cache) ──
 print("=" * 60)
 print("fast-disambig (no cache)")
 print("=" * 60)
@@ -39,7 +38,6 @@ print(f"  Chars/sec: {total_chars / elapsed_rust * 1000:,.0f}")
 print(f"  Avg/row:   {elapsed_rust / len(texts):.1f}ms")
 print()
 
-# ── CAMeL Tools ──
 from camel_tools.disambig.mle import MLEDisambiguator
 from camel_tools.tokenizers.word import simple_word_tokenize
 
