@@ -57,7 +57,6 @@ print(f"  Chars/sec: {total_chars / elapsed_camel * 1000:,.0f}")
 print(f"  Avg/row:   {elapsed_camel / len(texts):.1f}ms")
 print()
 
-# ── Summary ──
 print("=" * 60)
 print(f"Speedup: {elapsed_camel / elapsed_rust:.1f}x")
 print("=" * 60)
