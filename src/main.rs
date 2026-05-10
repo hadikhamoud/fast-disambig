@@ -58,9 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .clone()
                     .context("Resource mle has no path")?;
 
-                let test_file = std::fs::read_to_string(
-                    "/Users/hadihamoud/Desktop/hadi/Work/DI/DRU/fast-disambig/test.txt",
-                )?;
+                let test_file = std::fs::read_to_string("~/fast-disambig/test.txt")?;
 
                 let mle_model = mle::load_mle_model(mle_path)?;
 
