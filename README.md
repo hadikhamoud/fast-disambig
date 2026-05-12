@@ -61,7 +61,6 @@ results = dis.disambiguate(["والكتاب", "الجميل"])
 stemmer = fast_disambig.camel.Stemmer()  
 
 # light stemming 
-
 stemmer.stem("والكتاب الجميل")
 # 'و[+]ال[+]كتاب ال[+]جميل'
 
