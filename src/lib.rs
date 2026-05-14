@@ -1,7 +1,7 @@
 pub mod utils;
 
 pub mod camel;
-
+pub mod sina;
 pub use camel::analyzer;
 pub use camel::constants;
 pub use camel::downloader;
