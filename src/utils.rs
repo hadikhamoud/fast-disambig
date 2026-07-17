@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use regex::Regex;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::env;
 use std::fs;
+use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use std::string::String;
 use std::sync::LazyLock;
@@ -364,6 +366,99 @@ pub fn simple_word_tokenize(sentence: &str, mode: &str) -> Vec<String> {
 pub fn bytes_to_mib_human_readable(num: usize) -> String {
     let num_mibs = num / (1024 * 1024);
     return num_mibs.to_string() + " MB";
+}
+
+pub struct DownloadProgress {
+    enabled: bool,
+    name: String,
+    total: usize,
+    downloaded: usize,
+    last_percent: usize,
+    next_byte_report: usize,
+}
+
+impl DownloadProgress {
+    pub fn new(name: &str, total: Option<usize>) -> Self {
+        let setting = env::var("FAST_DISAMBIG_PROGRESS")
+            .unwrap_or_else(|_| "auto".to_owned())
+            .to_ascii_lowercase();
+        let enabled = match setting.as_str() {
+            "1" | "always" | "on" | "true" => true,
+            "0" | "never" | "off" | "false" => false,
+            _ => io::stderr().is_terminal(),
+        };
+
+        if enabled {
+            let mut stderr = io::stderr().lock();
+            let _ = write!(stderr, "Downloading {name}...");
+            let _ = stderr.flush();
+        }
+
+        Self {
+            enabled,
+            name: name.to_owned(),
+            total: total.unwrap_or(0),
+            downloaded: 0,
+            last_percent: 0,
+            next_byte_report: 8 * 1024 * 1024,
+        }
+    }
+
+    pub fn advance(&mut self, bytes: usize) {
+        if !self.enabled {
+            return;
+        }
+
+        self.downloaded = self.downloaded.saturating_add(bytes);
+        if self.total > 0 {
+            let percent = (self.downloaded.saturating_mul(100) / self.total).min(100);
+            if percent < 100 && percent < self.last_percent.saturating_add(5) {
+                return;
+            }
+            self.last_percent = percent;
+        } else if self.downloaded < self.next_byte_report {
+            return;
+        } else {
+            self.next_byte_report = self.next_byte_report.saturating_add(8 * 1024 * 1024);
+        }
+
+        let mut stderr = io::stderr().lock();
+        if self.total > 0 {
+            let _ = write!(
+                stderr,
+                "\rDownloading {:<30} {:>3}% {}/{}",
+                self.name,
+                self.last_percent,
+                bytes_to_mib_human_readable(self.downloaded),
+                bytes_to_mib_human_readable(self.total),
+            );
+        } else {
+            let _ = write!(
+                stderr,
+                "\rDownloading {:<30} {}",
+                self.name,
+                bytes_to_mib_human_readable(self.downloaded),
+            );
+        }
+        let _ = stderr.flush();
+    }
+
+    pub fn finish(mut self) {
+        if self.enabled {
+            let mut stderr = io::stderr().lock();
+            let _ = writeln!(stderr);
+            self.enabled = false;
+        }
+    }
+}
+
+impl Drop for DownloadProgress {
+    fn drop(&mut self) {
+        if self.enabled {
+            let mut stderr = io::stderr().lock();
+            let _ = writeln!(stderr);
+        }
+    }
 }
 
 pub fn unzip_file(zip_path: &PathBuf, extract_to_path: &PathBuf) -> Result<()> {

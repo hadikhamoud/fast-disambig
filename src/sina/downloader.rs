@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json;
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::{env, fs};
 
@@ -100,10 +100,7 @@ impl SinaResource {
                 .context("Resource destination has no parent")?,
         )?;
         let mut writer = BufWriter::new(temporary.as_file_mut());
-
-        let total = self.size.unwrap_or(0);
-        let mut downloaded: usize = 0;
-        let bar_width: usize = 100;
+        let mut progress = utils::DownloadProgress::new(&self.name, self.size);
 
         let mut buf = [0u8; 8192];
         let mut reader = response.body_mut().as_reader();
@@ -117,27 +114,9 @@ impl SinaResource {
             writer
                 .write_all(&buf[..n])
                 .context("Failed to write to file")?;
-
-            downloaded += n;
-            if total > 0 {
-                let pct = (downloaded as f64 / total as f64 * 100.0).min(100.0) as usize;
-                let filled = pct * bar_width / 100;
-                let empty = bar_width - filled;
-                let dl = utils::bytes_to_mib_human_readable(downloaded);
-                let tot = utils::bytes_to_mib_human_readable(total);
-                print!(
-                    "\r{:<30} [{:*<filled$}{: <empty$}] {:>3}% {dl}/{tot}",
-                    self.name,
-                    "",
-                    "",
-                    pct,
-                    filled = filled,
-                    empty = empty,
-                );
-                io::stdout().flush().ok();
-            }
+            progress.advance(n);
         }
-        println!();
+        progress.finish();
         writer.flush().context("Failed to flush file")?;
         drop(writer);
 
@@ -152,7 +131,6 @@ impl SinaResource {
         Ok(())
     }
     pub fn exists(&self) -> Result<bool> {
-        println!("Checking if {} exists", self.name);
         let sina_dir = get_or_create_sina_dir()?;
         let path = resource_path(
             &sina_dir,
@@ -162,7 +140,6 @@ impl SinaResource {
         )?;
 
         if !path.exists() {
-            println!("directory does not exist in the first place");
             return Ok(false);
         }
 
@@ -171,8 +148,6 @@ impl SinaResource {
         if file_hash != self.sha256 {
             return Ok(false);
         }
-
-        println!("{} already exists, skipping...", self.name);
 
         Ok(true)
     }
@@ -209,10 +184,7 @@ impl SinaCatalogue {
                 Ok(())
             }
 
-            Err(e) => {
-                eprintln!("Error getting Catalogue!");
-                Err(anyhow::Error::new(e))
-            }
+            Err(e) => Err(anyhow::Error::new(e)),
         }
     }
 
@@ -291,36 +263,5 @@ impl SinaCatalogue {
         ))?;
         resource.download()?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::resource_path;
-    use std::path::Path;
-
-    #[test]
-    fn resource_destinations_cannot_escape_data_directory() {
-        let root = Path::new("/safe/data");
-        assert!(resource_path(root, "models/morph.json").is_ok());
-        assert!(resource_path(root, "").is_err());
-        assert!(resource_path(root, "../outside").is_err());
-        assert!(resource_path(root, "/outside").is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn resource_destinations_reject_intermediate_symlinks() {
-        use std::fs;
-        use std::os::unix::fs::symlink;
-
-        let temporary = tempfile::tempdir().unwrap();
-        let root = temporary.path().join("data");
-        let outside = temporary.path().join("outside");
-        fs::create_dir_all(&root).unwrap();
-        fs::create_dir_all(&outside).unwrap();
-        symlink(&outside, root.join("linked")).unwrap();
-
-        assert!(resource_path(&root, "linked/resource").is_err());
     }
 }

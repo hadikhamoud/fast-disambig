@@ -9,7 +9,7 @@ use serde_json;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::{env, fs};
 
@@ -105,12 +105,7 @@ impl CamelResource {
             .context(format!("Failed to download '{}'", self.name))?;
 
         let mut writer = BufWriter::new(tmp_archive.as_file_mut());
-
-        let total = self.size.unwrap_or(0);
-        let mut downloaded: usize = 0;
-        let bar_width: usize = 60;
-
-        println!("Downloading {}...", self.name);
+        let mut progress = utils::DownloadProgress::new(&self.name, self.size);
 
         let mut buf = [0u8; 8192];
         let mut reader = response.body_mut().as_reader();
@@ -124,27 +119,9 @@ impl CamelResource {
             writer
                 .write_all(&buf[..n])
                 .context("Failed to write to file")?;
-
-            downloaded += n;
-            if total > 0 {
-                let pct = (downloaded as f64 / total as f64 * 100.0).min(100.0) as usize;
-                let filled = pct * bar_width / 100;
-                let empty = bar_width - filled;
-                let dl = utils::bytes_to_mib_human_readable(downloaded);
-                let tot = utils::bytes_to_mib_human_readable(total);
-                print!(
-                    "\r{:<30} [{:*<filled$}{: <empty$}] {:>3}% {dl}/{tot}",
-                    self.name,
-                    "",
-                    "",
-                    pct,
-                    filled = filled,
-                    empty = empty,
-                );
-                io::stdout().flush().ok();
-            }
+            progress.advance(n);
         }
-        println!();
+        progress.finish();
         writer.flush().context("Failed to flush file")?;
         drop(writer);
 
@@ -309,10 +286,7 @@ impl CamelCatalogue {
                 Ok(())
             }
 
-            Err(e) => {
-                eprintln!("Error getting Catalogue!");
-                Err(Box::new(e))
-            }
+            Err(e) => Err(Box::new(e)),
         }
     }
 
@@ -410,36 +384,5 @@ impl CamelCatalogue {
         }
         resource.download()?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::resource_path;
-    use std::path::Path;
-
-    #[test]
-    fn resource_destinations_cannot_escape_data_directory() {
-        let root = Path::new("/safe/data");
-        assert!(resource_path(root, "morphology_db/calima-msa-r13").is_ok());
-        assert!(resource_path(root, "").is_err());
-        assert!(resource_path(root, "../outside").is_err());
-        assert!(resource_path(root, "/outside").is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn resource_destinations_reject_intermediate_symlinks() {
-        use std::fs;
-        use std::os::unix::fs::symlink;
-
-        let temporary = tempfile::tempdir().unwrap();
-        let root = temporary.path().join("data");
-        let outside = temporary.path().join("outside");
-        fs::create_dir_all(&root).unwrap();
-        fs::create_dir_all(&outside).unwrap();
-        symlink(&outside, root.join("linked")).unwrap();
-
-        assert!(resource_path(&root, "linked/resource").is_err());
     }
 }

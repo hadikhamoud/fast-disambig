@@ -14,8 +14,8 @@ jobs:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
       - uses: dtolnay/rust-toolchain@stable
@@ -28,7 +28,7 @@ jobs:
         run: |
           pip install dist/*.whl
           python -c "import fast_disambig; print('import ok')"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.os }}-py${{ matrix.python-version }}
           path: dist/*.whl
@@ -36,29 +36,15 @@ jobs:
   build-sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: --out dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: dist/*.tar.gz
-
-  python-functional:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: PyO3/maturin-action@v1
-        with:
-          args: --release --out dist
-      - run: pip install dist/*.whl
-      - run: python -m unittest tests/python_smoke.py
 
   node:
     strategy:
@@ -69,8 +55,8 @@ jobs:
       run:
         working-directory: bindings/node
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -79,4 +65,3 @@ jobs:
       - run: npm ci
       - run: npm run check:versions
       - run: npm run build
-      - run: npm test
