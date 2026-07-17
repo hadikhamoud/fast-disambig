@@ -1,0 +1,9 @@
+{
+  "tokenizeInput": "والكتاب الجميل",
+  "fullTokens": ["والكتاب", " ", "الجميل"],
+  "dediacInput": "وَالْكِتَابُ",
+  "dediacOutput": "والكتاب",
+  "stemOutput": "و[+]ال[+]كتاب ال[+]جميل",
+  "disambiguateInput": "والكتاب",
+  "topDiac": "وَالكُتّابِ"
+}
