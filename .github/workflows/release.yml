@@ -3,6 +3,12 @@ name: Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Release tag to publish to PyPI
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -12,12 +18,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag_name }}
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - run: node bindings/node/scripts/check-release-tag.mjs "${{ github.event.release.tag_name }}"
+      - run: node bindings/node/scripts/check-release-tag.mjs "${{ github.event.release.tag_name || inputs.tag_name }}"
 
   node-build:
+    if: github.event_name == 'release'
     needs: [verify-version]
     strategy:
       fail-fast: false
@@ -80,6 +89,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag_name }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -100,6 +111,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag_name }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -118,6 +131,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag_name }}
       - uses: actions/setup-python@v6
         with:
           python-version: |
@@ -142,6 +157,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag_name }}
       - uses: PyO3/maturin-action@v1
         with:
           command: sdist
@@ -160,14 +177,20 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
+          pattern: wheel-*
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: sdist
+          path: dist
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
 
   node-publish:
+    if: github.event_name == 'release'
     needs: [node-build]
     runs-on: ubuntu-latest
     environment: npm
