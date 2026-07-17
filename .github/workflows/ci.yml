@@ -63,5 +63,6 @@ jobs:
           cache-dependency-path: bindings/node/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
+      - run: npm run sync:version
       - run: npm run check:versions
       - run: npm run build
