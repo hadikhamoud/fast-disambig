@@ -1,0 +1,16 @@
+[package]
+name = "fast-disambig-python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Python bindings for fast-disambig"
+publish = false
+
+[lib]
+name = "fast_disambig"
+crate-type = ["cdylib"]
+
+[dependencies]
+fast-disambig = { path = "../.." }
+pyo3 = { version = "0.25", features = ["extension-module"] }

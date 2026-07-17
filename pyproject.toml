@@ -19,4 +19,9 @@ classifiers = [
 ]
 
 [tool.maturin]
-features = ["pyo3/extension-module", "python"]
+manifest-path = "bindings/python/Cargo.toml"
+include = [
+    { path = "bindings/node/Cargo.toml", format = "sdist" },
+    { path = "bindings/node/build.rs", format = "sdist" },
+    { path = "bindings/node/src/**/*", format = "sdist" },
+]

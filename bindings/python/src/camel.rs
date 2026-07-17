@@ -2,13 +2,13 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::camel::analyzer;
-use crate::camel::analyzer::ScoredAnalysis;
-use crate::camel::downloader;
-use crate::camel::mle;
-use crate::camel::morphology_db::MorphologyDB;
-use crate::camel::stemmer;
-use crate::utils;
+use fast_disambig::camel::analyzer;
+use fast_disambig::camel::analyzer::ScoredAnalysis;
+use fast_disambig::camel::mle;
+use fast_disambig::camel::morphology_db::MorphologyDB;
+use fast_disambig::camel::resources::resolve_resource_path as resolve_core_resource_path;
+use fast_disambig::camel::stemmer;
+use fast_disambig::utils;
 
 #[pyclass]
 pub struct PyMorphologyDB {
@@ -329,7 +329,7 @@ enum FieldValue<'a> {
 }
 
 impl PyScoredAnalysis {
-    fn _get_field(&self, key: &str) -> FieldValue {
+    fn _get_field(&self, key: &str) -> FieldValue<'_> {
         match key {
             "score" => FieldValue::F64(self.inner.score),
             "category" => FieldValue::Str(&self.inner.category),
@@ -495,27 +495,8 @@ fn dediac_ar(text: &str) -> PyResult<String> {
 }
 
 fn resolve_resource_path(path_or_name: &str, component_path: &[&str]) -> PyResult<PathBuf> {
-    let direct_path = PathBuf::from(path_or_name);
-    if direct_path.exists() {
-        return Ok(direct_path);
-    }
-
-    let camel_dir = downloader::get_or_create_camel_dir()
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-    let path = camel_dir.join(path_or_name);
-    if !path.exists() {
-        let catalogue = downloader::CamelCatalogue::load()
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        return catalogue
-            .ensure_component_dataset(component_path, Some(path_or_name))
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!(
-                    "Failed to download '{}': {}",
-                    path_or_name, e
-                ))
-            });
-    }
-    Ok(path)
+    resolve_core_resource_path(path_or_name, component_path)
+        .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))
 }
 
 #[pyclass]

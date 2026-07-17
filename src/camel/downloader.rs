@@ -2,6 +2,7 @@ use crate::camel::constants;
 use crate::utils;
 use anyhow::Context;
 use anyhow::Result;
+use fs2::FileExt;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json;
@@ -9,8 +10,47 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::{env, fs};
+
+fn lock_data_dir(data_dir: &Path) -> Result<File> {
+    let lock = File::options()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(data_dir.join(".fast-disambig.lock"))?;
+    lock.lock_exclusive()?;
+    Ok(lock)
+}
+
+fn resource_path(data_dir: &Path, destination: &str) -> Result<PathBuf> {
+    let destination = Path::new(destination);
+    let mut resolved = data_dir.to_path_buf();
+    let mut has_component = false;
+    for component in destination.components() {
+        let Component::Normal(component) = component else {
+            anyhow::bail!("Invalid resource destination '{}'", destination.display());
+        };
+        has_component = true;
+        resolved.push(component);
+        if resolved
+            .symlink_metadata()
+            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            anyhow::bail!(
+                "Resource destination contains a symbolic link: '{}'",
+                destination.display()
+            );
+        }
+    }
+    anyhow::ensure!(
+        has_component,
+        "Invalid resource destination '{}'",
+        destination.display()
+    );
+    Ok(resolved)
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct CamelCatalogue {
@@ -47,30 +87,24 @@ impl CamelResource {
             None => return Ok(()),
         };
 
+        let camel_dir = get_or_create_camel_dir()?;
+        let _lock = lock_data_dir(&camel_dir)?;
         if self.exists()? {
             return Ok(());
         }
 
-        let camel_dir = get_or_create_camel_dir()?;
-        let dest = camel_dir.join(self.destination.as_deref().unwrap_or(&self.name));
-        let tmp_dest =
-            PathBuf::from("/tmp").join(self.destination.as_deref().unwrap_or(&self.name));
-
-        if let Some(parent) = tmp_dest.parent() {
-            fs::create_dir_all(parent).context(format!(
-                "Failed to create temp directory {}",
-                parent.display()
-            ))?;
-        }
+        let dest = resource_path(
+            &camel_dir,
+            self.destination.as_deref().unwrap_or(&self.name),
+        )?;
+        let mut tmp_archive = tempfile::NamedTempFile::new_in(&camel_dir)
+            .context("Failed to create temporary download file")?;
 
         let mut response = ureq::get(url)
             .call()
             .context(format!("Failed to download '{}'", self.name))?;
 
-        let mut writer = BufWriter::new(
-            File::create(&tmp_dest)
-                .context(format!("Failed to create file at {}", tmp_dest.display()))?,
-        );
+        let mut writer = BufWriter::new(tmp_archive.as_file_mut());
 
         let total = self.size.unwrap_or(0);
         let mut downloaded: usize = 0;
@@ -112,20 +146,44 @@ impl CamelResource {
         }
         println!();
         writer.flush().context("Failed to flush file")?;
-        fs::create_dir_all(&dest)
-            .context(format!("Failed to create destination {}", dest.display()))?;
-        utils::unzip_file(&tmp_dest, &dest)?;
-        fs::remove_file(&tmp_dest).context("Failed to clean up temp file")?;
+        drop(writer);
+
+        if let Some(expected_hash) = &self.sha256 {
+            let downloaded_hash = utils::hash(&fs::read(tmp_archive.path())?);
+            anyhow::ensure!(
+                downloaded_hash == *expected_hash,
+                "Checksum mismatch while downloading '{}'",
+                self.name
+            );
+        }
+
+        let parent = dest
+            .parent()
+            .context("Resource destination has no parent")?;
+        fs::create_dir_all(parent)?;
+        let staging = tempfile::Builder::new()
+            .prefix(".fast-disambig-")
+            .tempdir_in(parent)?;
+        utils::unzip_file(
+            &tmp_archive.path().to_path_buf(),
+            &staging.path().to_path_buf(),
+        )?;
+        if dest.exists() {
+            fs::remove_dir_all(&dest)?;
+        }
+        fs::rename(staging.keep(), &dest)
+            .with_context(|| format!("Failed to install resource at {}", dest.display()))?;
 
         Ok(())
     }
     pub fn exists(&self) -> Result<bool> {
         let camel_dir = get_or_create_camel_dir()?;
-        let path = camel_dir.join(
+        let path = resource_path(
+            &camel_dir,
             self.destination
                 .as_ref()
                 .context("Resource has no path field")?,
-        );
+        )?;
 
         if !path.exists() {
             return Ok(false);
@@ -154,9 +212,15 @@ impl CamelResource {
 }
 
 pub fn get_or_create_camel_dir() -> Result<PathBuf> {
-    let curr_home_dir = env::home_dir().context("Home directory not found")?;
-
-    let camel_dir = curr_home_dir.join(".camel_tools/data");
+    let camel_dir = if let Some(path) = env::var_os("FAST_DISAMBIG_DATA_DIR") {
+        PathBuf::from(path)
+    } else if let Some(path) = env::var_os("CAMELTOOLS_DATA") {
+        PathBuf::from(path)
+    } else {
+        env::home_dir()
+            .context("Home directory not found")?
+            .join(".camel_tools/data")
+    };
     if !camel_dir.exists() {
         fs::create_dir_all(&camel_dir).context("Could not create the .camel_tools directory")?;
     }
@@ -227,18 +291,21 @@ impl CamelCatalogue {
         self.download_resource(package_name)
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
-        Ok(get_or_create_camel_dir()?.join(destination))
+        resource_path(&get_or_create_camel_dir()?, destination)
     }
 
     pub fn get(catalogue_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-        let catalogue_file = File::create(catalogue_path)?;
         match ureq::get(constants::CAMEL_DATA_CATALOGUE_URL).call() {
             Ok(mut response) => {
-                let writer = BufWriter::new(catalogue_file);
-
                 let response_json: serde_json::Value =
                     serde_json::from_str(&response.body_mut().read_to_string()?)?;
-                serde_json::to_writer_pretty(writer, &response_json)?;
+                let parent = catalogue_path
+                    .parent()
+                    .context("Catalogue path has no parent")?;
+                let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+                serde_json::to_writer_pretty(temporary.as_file_mut(), &response_json)?;
+                temporary.as_file_mut().sync_all()?;
+                temporary.persist(catalogue_path)?;
                 Ok(())
             }
 
@@ -250,9 +317,17 @@ impl CamelCatalogue {
     }
 
     pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
+        Self::load_with_download(true)
+    }
+
+    pub fn load_with_download(allow_download: bool) -> Result<Self, Box<dyn std::error::Error>> {
         let camel_dir = get_or_create_camel_dir()?;
+        let _lock = lock_data_dir(&camel_dir)?;
         let catalogue_path = camel_dir.join("catalogue.json");
         if !catalogue_path.exists() {
+            if !allow_download {
+                return Err(anyhow::anyhow!("CAMeL data catalogue is not installed").into());
+            }
             Self::get(&catalogue_path)?;
         }
 
@@ -263,11 +338,20 @@ impl CamelCatalogue {
 
         for res in catalogue_json.packages.values_mut() {
             if let Some(dest) = &res.destination {
-                res.path = Some(camel_dir.join(dest));
+                res.path = Some(resource_path(&camel_dir, dest)?);
             }
         }
 
         Ok(catalogue_json)
+    }
+
+    pub fn component_dataset_path(
+        &self,
+        component_path: &[&str],
+        dataset: Option<&str>,
+    ) -> Result<PathBuf> {
+        let destination = self.component_dataset_destination(component_path, dataset)?;
+        resource_path(&get_or_create_camel_dir()?, destination)
     }
 
     pub fn display(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -326,5 +410,36 @@ impl CamelCatalogue {
         }
         resource.download()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resource_path;
+    use std::path::Path;
+
+    #[test]
+    fn resource_destinations_cannot_escape_data_directory() {
+        let root = Path::new("/safe/data");
+        assert!(resource_path(root, "morphology_db/calima-msa-r13").is_ok());
+        assert!(resource_path(root, "").is_err());
+        assert!(resource_path(root, "../outside").is_err());
+        assert!(resource_path(root, "/outside").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resource_destinations_reject_intermediate_symlinks() {
+        use std::fs;
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("data");
+        let outside = temporary.path().join("outside");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, root.join("linked")).unwrap();
+
+        assert!(resource_path(&root, "linked/resource").is_err());
     }
 }

@@ -28,6 +28,19 @@ fn is_word_token(s: &str) -> bool {
     })
 }
 
+pub fn cache_keys(text: &str) -> Vec<String> {
+    let text = text.replace('\u{0640}', "");
+    let text = utils::RE_ZERO_WIDTH.replace_all(&text, "");
+    let mut seen = HashSet::new();
+
+    utils::simple_word_tokenize(&text, "full")
+        .into_iter()
+        .filter(|token| is_word_token(token))
+        .filter_map(|word| utils::dediac_ar(&word).ok())
+        .filter(|word| seen.insert(word.clone()))
+        .collect()
+}
+
 fn try_scheme(
     analysis: &ScoredAnalysis,
     scheme: &str,

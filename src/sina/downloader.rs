@@ -2,14 +2,54 @@ use crate::sina::constants::sina_asset_url;
 use crate::utils;
 use anyhow::Context;
 use anyhow::Result;
+use fs2::FileExt;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::{env, fs};
+
+fn lock_data_dir(data_dir: &Path) -> Result<File> {
+    let lock = File::options()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(data_dir.join(".fast-disambig.lock"))?;
+    lock.lock_exclusive()?;
+    Ok(lock)
+}
+
+fn resource_path(data_dir: &Path, destination: &str) -> Result<PathBuf> {
+    let destination = Path::new(destination);
+    let mut resolved = data_dir.to_path_buf();
+    let mut has_component = false;
+    for component in destination.components() {
+        let Component::Normal(component) = component else {
+            anyhow::bail!("Invalid resource destination '{}'", destination.display());
+        };
+        has_component = true;
+        resolved.push(component);
+        if resolved
+            .symlink_metadata()
+            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            anyhow::bail!(
+                "Resource destination contains a symbolic link: '{}'",
+                destination.display()
+            );
+        }
+    }
+    anyhow::ensure!(
+        has_component,
+        "Invalid resource destination '{}'",
+        destination.display()
+    );
+    Ok(resolved)
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct SinaCatalogue {
@@ -36,12 +76,13 @@ impl SinaResource {
             None => return Ok(()),
         };
 
+        let sina_dir = get_or_create_sina_dir()?;
+        let _lock = lock_data_dir(&sina_dir)?;
         if self.exists()? {
             return Ok(());
         }
 
-        let sina_dir = get_or_create_sina_dir()?;
-        let dest = sina_dir.join(self.destination.as_deref().unwrap_or(&self.name));
+        let dest = resource_path(&sina_dir, self.destination.as_deref().unwrap_or(&self.name))?;
 
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent).context(format!(
@@ -54,9 +95,11 @@ impl SinaResource {
             .call()
             .context(format!("Failed to download '{}'", self.name))?;
 
-        let mut writer = BufWriter::new(
-            File::create(&dest).context(format!("Failed to create file at {}", dest.display()))?,
-        );
+        let mut temporary = tempfile::NamedTempFile::new_in(
+            dest.parent()
+                .context("Resource destination has no parent")?,
+        )?;
+        let mut writer = BufWriter::new(temporary.as_file_mut());
 
         let total = self.size.unwrap_or(0);
         let mut downloaded: usize = 0;
@@ -96,17 +139,27 @@ impl SinaResource {
         }
         println!();
         writer.flush().context("Failed to flush file")?;
+        drop(writer);
+
+        let downloaded_hash = utils::hash(&fs::read(temporary.path())?);
+        anyhow::ensure!(
+            downloaded_hash == self.sha256,
+            "Checksum mismatch while downloading '{}'",
+            self.name
+        );
+        temporary.persist(&dest)?;
 
         Ok(())
     }
     pub fn exists(&self) -> Result<bool> {
         println!("Checking if {} exists", self.name);
         let sina_dir = get_or_create_sina_dir()?;
-        let path = sina_dir.join(
+        let path = resource_path(
+            &sina_dir,
             self.destination
                 .as_ref()
                 .context("Resource has no path field")?,
-        );
+        )?;
 
         if !path.exists() {
             println!("directory does not exist in the first place");
@@ -126,9 +179,13 @@ impl SinaResource {
 }
 
 pub fn get_or_create_sina_dir() -> Result<PathBuf> {
-    let curr_home_dir = env::home_dir().context("Home directory not found")?;
-
-    let sina_dir = curr_home_dir.join(".sinatools/");
+    let sina_dir = if let Some(path) = env::var_os("FAST_DISAMBIG_SINA_DATA_DIR") {
+        PathBuf::from(path)
+    } else {
+        env::home_dir()
+            .context("Home directory not found")?
+            .join(".sinatools")
+    };
     if !sina_dir.exists() {
         fs::create_dir_all(&sina_dir).context("Could not create the .sinatools directory")?;
     }
@@ -137,15 +194,18 @@ pub fn get_or_create_sina_dir() -> Result<PathBuf> {
 
 impl SinaCatalogue {
     pub fn get(catalogue_path: &PathBuf) -> Result<()> {
-        let catalogue_file = File::create(catalogue_path)?;
         let catalogue_url = sina_asset_url("catalogue").context("could not find catalogue URL")?;
         match ureq::get(catalogue_url).call() {
             Ok(mut response) => {
-                let writer = BufWriter::new(catalogue_file);
-
                 let response_json: serde_json::Value =
                     serde_json::from_str(&response.body_mut().read_to_string()?)?;
-                serde_json::to_writer_pretty(writer, &response_json)?;
+                let parent = catalogue_path
+                    .parent()
+                    .context("Catalogue path has no parent")?;
+                let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+                serde_json::to_writer_pretty(temporary.as_file_mut(), &response_json)?;
+                temporary.as_file_mut().sync_all()?;
+                temporary.persist(catalogue_path)?;
                 Ok(())
             }
 
@@ -158,6 +218,7 @@ impl SinaCatalogue {
 
     pub fn load() -> Result<Self> {
         let sina_dir = get_or_create_sina_dir()?;
+        let _lock = lock_data_dir(&sina_dir)?;
         let catalogue_path = sina_dir.join("catalogue.json");
         if !catalogue_path.exists() {
             Self::get(&catalogue_path)?;
@@ -170,7 +231,7 @@ impl SinaCatalogue {
 
         for res in catalogue_json.packages.values_mut() {
             if let Some(dest) = &res.destination {
-                res.path = Some(sina_dir.join(dest));
+                res.path = Some(resource_path(&sina_dir, dest)?);
             }
         }
 
@@ -230,5 +291,36 @@ impl SinaCatalogue {
         ))?;
         resource.download()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resource_path;
+    use std::path::Path;
+
+    #[test]
+    fn resource_destinations_cannot_escape_data_directory() {
+        let root = Path::new("/safe/data");
+        assert!(resource_path(root, "models/morph.json").is_ok());
+        assert!(resource_path(root, "").is_err());
+        assert!(resource_path(root, "../outside").is_err());
+        assert!(resource_path(root, "/outside").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resource_destinations_reject_intermediate_symlinks() {
+        use std::fs;
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("data");
+        let outside = temporary.path().join("outside");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, root.join("linked")).unwrap();
+
+        assert!(resource_path(&root, "linked/resource").is_err());
     }
 }

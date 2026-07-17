@@ -1,0 +1,23 @@
+{
+  "name": "fast-disambig-darwin-x64",
+  "version": "0.2.1",
+  "cpu": [
+    "x64"
+  ],
+  "main": "fast-disambig.darwin-x64.node",
+  "files": [
+    "fast-disambig.darwin-x64.node"
+  ],
+  "description": "Fast Arabic morphological disambiguation and stemming",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.17"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hadikhamoud/fast-disambig.git"
+  },
+  "os": [
+    "darwin"
+  ]
+}

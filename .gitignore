@@ -21,3 +21,7 @@ target
 #.idea/
 
 misc/
+
+# Node bindings
+bindings/node/node_modules/
+bindings/node/*.node

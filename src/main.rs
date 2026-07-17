@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(package) = download {
                 catalogue.download_resource(&package)?;
             }
-            if let Some(word) = show {
+            if let Some(_word) = show {
                 let resource = catalogue
                     .packages
                     .get("morphology-db-msa-r13")
@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let test_words_refs: Vec<&str> = test_words.iter().map(|s| s.as_str()).collect();
 
                 let disambig_start = Instant::now();
-                let result = disambiguate(&test_words_refs, &db, &mle_model, "NOAN_PROP", 1)?;
+                let _result = disambiguate(&test_words_refs, &db, &mle_model, "NOAN_PROP", 1)?;
                 let disambig_elapsed = disambig_start.elapsed();
 
                 println!("Tokens: {}", test_words.len());

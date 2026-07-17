@@ -1,0 +1,23 @@
+{
+  "name": "fast-disambig-win32-x64-msvc",
+  "version": "0.2.1",
+  "cpu": [
+    "x64"
+  ],
+  "main": "fast-disambig.win32-x64-msvc.node",
+  "files": [
+    "fast-disambig.win32-x64-msvc.node"
+  ],
+  "description": "Fast Arabic morphological disambiguation and stemming",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.17"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hadikhamoud/fast-disambig.git"
+  },
+  "os": [
+    "win32"
+  ]
+}

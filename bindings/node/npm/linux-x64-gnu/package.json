@@ -1,0 +1,26 @@
+{
+  "name": "fast-disambig-linux-x64-gnu",
+  "version": "0.2.1",
+  "cpu": [
+    "x64"
+  ],
+  "main": "fast-disambig.linux-x64-gnu.node",
+  "files": [
+    "fast-disambig.linux-x64-gnu.node"
+  ],
+  "description": "Fast Arabic morphological disambiguation and stemming",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.17"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hadikhamoud/fast-disambig.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "glibc"
+  ]
+}

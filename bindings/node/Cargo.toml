@@ -1,0 +1,20 @@
+[package]
+name = "fast-disambig-node"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Node.js bindings for fast-disambig"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fast-disambig = { path = "../.." }
+napi = { version = "3", default-features = false, features = ["napi4", "dyn-symbols", "async"] }
+napi-derive = "3"
+
+[build-dependencies]
+napi-build = "2"
