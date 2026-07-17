@@ -152,6 +152,67 @@ impl ScoredAnalysis {
     }
 }
 
+enum DeferredFeatures<'a> {
+    Normal {
+        prefix: &'a ScoredAnalysis,
+        stem: &'a ScoredAnalysis,
+        suffix: &'a ScoredAnalysis,
+        is_spvar: bool,
+    },
+    Backoff {
+        prefix: &'a ScoredAnalysis,
+        stem: Box<ScoredAnalysis>,
+        suffix: &'a ScoredAnalysis,
+        stemcat: String,
+    },
+}
+
+pub(crate) struct AnalysisCandidate<'a> {
+    pub analysis: ScoredAnalysis,
+    deferred: Option<DeferredFeatures<'a>>,
+}
+
+impl AnalysisCandidate<'_> {
+    pub fn materialize(self, db: &morphology_db::MorphologyDB) -> Result<ScoredAnalysis> {
+        let Some(deferred) = self.deferred else {
+            return Ok(self.analysis);
+        };
+        let score = self.analysis.score;
+        let mut result = match deferred {
+            DeferredFeatures::Normal {
+                prefix,
+                stem,
+                suffix,
+                is_spvar,
+            } => {
+                let mut result = merge_features(db, prefix, stem, suffix, "+", "AF")?;
+                result.stem = stem.diac.clone();
+                result.stemcat = stem.category.clone();
+                if is_spvar {
+                    result.source = "spvar".to_string();
+                }
+                result
+            }
+            DeferredFeatures::Backoff {
+                prefix,
+                stem,
+                suffix,
+                stemcat,
+            } => {
+                let mut result = merge_features(db, prefix, &stem, suffix, "+", "AF")?;
+                result.stem = stem.diac.clone();
+                result.stemcat = stemcat;
+                result.source = "backoff".to_string();
+                result.pattern = "backoff".to_string();
+                result.gloss = stem.gloss.clone();
+                result
+            }
+        };
+        result.score = score;
+        Ok(result)
+    }
+}
+
 pub fn merge_features(
     db: &morphology_db::MorphologyDB,
     prefix: &ScoredAnalysis,
@@ -160,7 +221,49 @@ pub fn merge_features(
     join_char: &str,
     diac_mode: &str,
 ) -> Result<ScoredAnalysis> {
-    let mut result = stem.clone();
+    merge_features_impl(db, prefix, stem, suffix, join_char, diac_mode, true)
+}
+
+fn merge_features_impl(
+    db: &morphology_db::MorphologyDB,
+    prefix: &ScoredAnalysis,
+    stem: &ScoredAnalysis,
+    suffix: &ScoredAnalysis,
+    join_char: &str,
+    _diac_mode: &str,
+    materialize_derived: bool,
+) -> Result<ScoredAnalysis> {
+    let mut result = if materialize_derived {
+        stem.clone()
+    } else {
+        ScoredAnalysis {
+            diac: stem.diac.clone(),
+            lex: stem.lex.clone(),
+            bw: stem.bw.clone(),
+            per: stem.per.clone(),
+            asp: stem.asp.clone(),
+            vox: stem.vox.clone(),
+            r#mod: stem.r#mod.clone(),
+            r#gen: stem.r#gen.clone(),
+            num: stem.num.clone(),
+            stt: stem.stt.clone(),
+            cas: stem.cas.clone(),
+            form_gen: stem.form_gen.clone(),
+            form_num: stem.form_num.clone(),
+            pos: stem.pos.clone(),
+            prc3: stem.prc3.clone(),
+            prc2: stem.prc2.clone(),
+            prc1: stem.prc1.clone(),
+            prc0: stem.prc0.clone(),
+            enc0: stem.enc0.clone(),
+            enc1: stem.enc1.clone(),
+            enc2: stem.enc2.clone(),
+            pos_logprob: stem.pos_logprob,
+            lex_logprob: stem.lex_logprob,
+            pos_lex_logprob: stem.pos_lex_logprob,
+            ..ScoredAnalysis::default()
+        }
+    };
 
     utils::apply_override(&mut result.pos, &suffix.pos);
     utils::apply_override(&mut result.pos, &prefix.pos);
@@ -189,8 +292,10 @@ pub fn merge_features(
     utils::apply_override(&mut result.cas, &suffix.cas);
     utils::apply_override(&mut result.cas, &prefix.cas);
 
-    utils::apply_override(&mut result.rat, &suffix.rat);
-    utils::apply_override(&mut result.rat, &prefix.rat);
+    if materialize_derived {
+        utils::apply_override(&mut result.rat, &suffix.rat);
+        utils::apply_override(&mut result.rat, &prefix.rat);
+    }
 
     utils::apply_override(&mut result.form_gen, &suffix.form_gen);
     utils::apply_override(&mut result.form_gen, &prefix.form_gen);
@@ -219,16 +324,20 @@ pub fn merge_features(
     utils::apply_override(&mut result.enc2, &suffix.enc2);
     utils::apply_override(&mut result.enc2, &prefix.enc2);
 
-    utils::apply_override(&mut result.source, &suffix.source);
-    utils::apply_override(&mut result.source, &prefix.source);
+    if materialize_derived {
+        utils::apply_override(&mut result.source, &suffix.source);
+        utils::apply_override(&mut result.source, &prefix.source);
+    }
 
     utils::apply_override(&mut result.lex, &suffix.lex);
     utils::apply_override(&mut result.lex, &prefix.lex);
 
-    utils::apply_override(&mut result.root, &suffix.root);
-    utils::apply_override(&mut result.root, &prefix.root);
+    if materialize_derived {
+        utils::apply_override(&mut result.root, &suffix.root);
+        utils::apply_override(&mut result.root, &prefix.root);
+    }
 
-    if db.defines.contains_key("gloss") {
+    if materialize_derived && db.defines.contains_key("gloss") {
         result.gloss =
             utils::join_non_empty(&[&prefix.gloss, &stem.gloss, &suffix.gloss], join_char);
     }
@@ -239,21 +348,21 @@ pub fn merge_features(
     if db.defines.contains_key("diac") {
         result.diac = utils::join_non_empty(&[&prefix.diac, &stem.diac, &suffix.diac], join_char);
     }
-    if db.defines.contains_key("catib6") {
+    if materialize_derived && db.defines.contains_key("catib6") {
         result.catib6 =
             utils::join_non_empty(&[&prefix.catib6, &stem.catib6, &suffix.catib6], join_char);
     }
-    if db.defines.contains_key("ud") {
+    if materialize_derived && db.defines.contains_key("ud") {
         result.ud = utils::join_non_empty(&[&prefix.ud, &stem.ud, &suffix.ud], join_char);
     }
-    if db.defines.contains_key("caphi") {
+    if materialize_derived && db.defines.contains_key("caphi") {
         result.caphi =
             utils::join_non_empty(&[&prefix.caphi, &stem.caphi, &suffix.caphi], join_char);
     }
 
     let stem_diac = &stem.diac;
 
-    if db.defines.contains_key("d1seg") {
+    if materialize_derived && db.defines.contains_key("d1seg") {
         let s = if stem.d1seg.is_empty() {
             stem_diac
         } else {
@@ -261,7 +370,7 @@ pub fn merge_features(
         };
         result.d1seg = format!("{}{}{}", prefix.d1seg, s, suffix.d1seg);
     }
-    if db.defines.contains_key("d2seg") {
+    if materialize_derived && db.defines.contains_key("d2seg") {
         let s = if stem.d2seg.is_empty() {
             stem_diac
         } else {
@@ -269,7 +378,7 @@ pub fn merge_features(
         };
         result.d2seg = format!("{}{}{}", prefix.d2seg, s, suffix.d2seg);
     }
-    if db.defines.contains_key("d3seg") {
+    if materialize_derived && db.defines.contains_key("d3seg") {
         let s = if stem.d3seg.is_empty() {
             stem_diac
         } else {
@@ -277,7 +386,7 @@ pub fn merge_features(
         };
         result.d3seg = format!("{}{}{}", prefix.d3seg, s, suffix.d3seg);
     }
-    if db.defines.contains_key("atbseg") {
+    if materialize_derived && db.defines.contains_key("atbseg") {
         let s = if stem.atbseg.is_empty() {
             stem_diac
         } else {
@@ -285,7 +394,7 @@ pub fn merge_features(
         };
         result.atbseg = format!("{}{}{}", prefix.atbseg, s, suffix.atbseg);
     }
-    if db.defines.contains_key("d1tok") {
+    if materialize_derived && db.defines.contains_key("d1tok") {
         let s = if stem.d1tok.is_empty() {
             stem_diac
         } else {
@@ -293,7 +402,7 @@ pub fn merge_features(
         };
         result.d1tok = format!("{}{}{}", prefix.d1tok, s, suffix.d1tok);
     }
-    if db.defines.contains_key("d2tok") {
+    if materialize_derived && db.defines.contains_key("d2tok") {
         let s = if stem.d2tok.is_empty() {
             stem_diac
         } else {
@@ -301,7 +410,7 @@ pub fn merge_features(
         };
         result.d2tok = format!("{}{}{}", prefix.d2tok, s, suffix.d2tok);
     }
-    if db.defines.contains_key("d3tok") {
+    if materialize_derived && db.defines.contains_key("d3tok") {
         let s = if stem.d3tok.is_empty() {
             stem_diac
         } else {
@@ -309,7 +418,7 @@ pub fn merge_features(
         };
         result.d3tok = format!("{}{}{}", prefix.d3tok, s, suffix.d3tok);
     }
-    if db.defines.contains_key("atbtok") {
+    if materialize_derived && db.defines.contains_key("atbtok") {
         let s = if stem.atbtok.is_empty() {
             stem_diac
         } else {
@@ -317,7 +426,7 @@ pub fn merge_features(
         };
         result.atbtok = format!("{}{}{}", prefix.atbtok, s, suffix.atbtok);
     }
-    if db.defines.contains_key("bwtok") {
+    if materialize_derived && db.defines.contains_key("bwtok") {
         let s = if stem.bwtok.is_empty() {
             stem_diac
         } else {
@@ -326,38 +435,40 @@ pub fn merge_features(
         result.bwtok = format!("{}{}{}", prefix.bwtok, s, suffix.bwtok);
     }
 
-    result.stem = stem.diac.clone();
-    result.stemgloss = stem.gloss.clone();
+    if materialize_derived {
+        result.stem = stem.diac.clone();
+        result.stemgloss = stem.gloss.clone();
+    }
 
-    result.diac = utils::normalize_tanwyn(&utils::rewrite_diac(&result.diac), diac_mode);
+    result.diac = utils::rewrite_diac(&result.diac);
 
-    if db.defines.contains_key("d1tok") {
+    if materialize_derived && db.defines.contains_key("d1tok") {
         result.d1tok = utils::rewrite_tok_1(&result.d1tok);
     }
-    if db.defines.contains_key("d2tok") {
+    if materialize_derived && db.defines.contains_key("d2tok") {
         result.d2tok = utils::rewrite_tok_1(&result.d2tok);
     }
-    if db.defines.contains_key("atbtok") {
+    if materialize_derived && db.defines.contains_key("atbtok") {
         result.atbtok = utils::rewrite_tok_1(&result.atbtok);
     }
-    if db.defines.contains_key("d1seg") {
+    if materialize_derived && db.defines.contains_key("d1seg") {
         result.d1seg = utils::rewrite_tok_1(&result.d1seg);
     }
-    if db.defines.contains_key("d2seg") {
+    if materialize_derived && db.defines.contains_key("d2seg") {
         result.d2seg = utils::rewrite_tok_1(&result.d2seg);
     }
-    if db.defines.contains_key("d3seg") {
+    if materialize_derived && db.defines.contains_key("d3seg") {
         result.d3seg = utils::rewrite_tok_1(&result.d3seg);
     }
-    if db.defines.contains_key("atbseg") {
+    if materialize_derived && db.defines.contains_key("atbseg") {
         result.atbseg = utils::rewrite_tok_1(&result.atbseg);
     }
 
-    if db.defines.contains_key("d3tok") {
+    if materialize_derived && db.defines.contains_key("d3tok") {
         result.d3tok = utils::rewrite_tok_2(&result.d3tok);
     }
 
-    if db.defines.contains_key("caphi") {
+    if materialize_derived && db.defines.contains_key("caphi") {
         result.caphi = utils::rewrite_caphi(&result.caphi);
     }
 
@@ -368,7 +479,7 @@ pub fn merge_features(
         result.num = result.form_num.clone();
     }
 
-    if db.compute_feats.contains("pattern") {
+    if materialize_derived && db.compute_feats.contains("pattern") {
         let stem_pattern = if stem.pattern.is_empty() {
             &stem.diac
         } else {
@@ -388,7 +499,29 @@ pub fn combine_analyses(
     stem_analyses: &[ScoredAnalysis],
     suffix_analyses: &[ScoredAnalysis],
 ) -> Result<VecDeque<ScoredAnalysis>> {
+    Ok(combine_analysis_candidates(
+        word_dediac,
+        db,
+        prefix_analyses,
+        stem_analyses,
+        suffix_analyses,
+        false,
+    )?
+    .into_iter()
+    .map(|candidate| candidate.analysis)
+    .collect())
+}
+
+fn combine_analysis_candidates<'a>(
+    word_dediac: &str,
+    db: &'a morphology_db::MorphologyDB,
+    prefix_analyses: &'a [ScoredAnalysis],
+    stem_analyses: &'a [ScoredAnalysis],
+    suffix_analyses: &'a [ScoredAnalysis],
+    defer_features: bool,
+) -> Result<VecDeque<AnalysisCandidate<'a>>> {
     let mut combined = VecDeque::new();
+    let word_dediac_no_tatweel = word_dediac.replace('\u{0640}', "");
 
     for prefix_feats in prefix_analyses {
         let prefix_cat = &prefix_feats.category;
@@ -421,17 +554,35 @@ pub fn combine_analyses(
                     continue;
                 }
 
-                let mut merged =
-                    merge_features(db, prefix_feats, stem_feats, suffix_feats, "+", "AF")?;
-                merged.stem = stem_feats.diac.clone();
-                merged.stemcat = stem_cat.clone();
+                let mut analysis = merge_features_impl(
+                    db,
+                    prefix_feats,
+                    stem_feats,
+                    suffix_feats,
+                    "+",
+                    "AF",
+                    !defer_features,
+                )?;
+                let merged_dediac = utils::dediac_ar_cow(&analysis.diac);
+                let is_spvar = word_dediac_no_tatweel != merged_dediac;
 
-                let merged_dediac = utils::dediac_ar(&merged.diac)?;
-                if word_dediac.replace('\u{0640}', "") != merged_dediac {
-                    merged.source = "spvar".to_string();
-                }
+                let deferred = if defer_features {
+                    Some(DeferredFeatures::Normal {
+                        prefix: prefix_feats,
+                        stem: stem_feats,
+                        suffix: suffix_feats,
+                        is_spvar,
+                    })
+                } else {
+                    analysis.stem = stem_feats.diac.clone();
+                    analysis.stemcat = stem_cat.clone();
+                    if is_spvar {
+                        analysis.source = "spvar".to_string();
+                    }
+                    None
+                };
 
-                combined.push_back(merged);
+                combined.push_back(AnalysisCandidate { analysis, deferred });
             }
         }
     }
@@ -447,6 +598,29 @@ pub fn combine_backoff_analyses(
     suffix_analyses: &[ScoredAnalysis],
     backoff_action: &str,
 ) -> Result<VecDeque<ScoredAnalysis>> {
+    Ok(combine_backoff_candidates(
+        stem_str,
+        db,
+        prefix_analyses,
+        stem_analyses,
+        suffix_analyses,
+        backoff_action,
+        false,
+    )?
+    .into_iter()
+    .map(|candidate| candidate.analysis)
+    .collect())
+}
+
+fn combine_backoff_candidates<'a>(
+    stem_str: &str,
+    db: &'a morphology_db::MorphologyDB,
+    prefix_analyses: &'a [ScoredAnalysis],
+    stem_analyses: &[ScoredAnalysis],
+    suffix_analyses: &'a [ScoredAnalysis],
+    backoff_action: &str,
+    defer_features: bool,
+) -> Result<VecDeque<AnalysisCandidate<'a>>> {
     let mut combined = VecDeque::new();
 
     for prefix_feats in prefix_analyses {
@@ -487,15 +661,33 @@ pub fn combine_backoff_analyses(
                 stem_feats.lex = utils::replace_noan(&stem_feats.lex, stem_str);
                 stem_feats.caphi = utils::simple_ar_to_caphi(stem_str);
 
-                let mut merged =
-                    merge_features(db, prefix_feats, &stem_feats, suffix_feats, "+", "AF")?;
-                merged.stem = stem_feats.diac.clone();
-                merged.stemcat = stem_cat.clone();
-                merged.source = "backoff".to_string();
-                merged.pattern = "backoff".to_string();
-                merged.gloss = stem_feats.gloss.clone();
+                let mut analysis = merge_features_impl(
+                    db,
+                    prefix_feats,
+                    &stem_feats,
+                    suffix_feats,
+                    "+",
+                    "AF",
+                    !defer_features,
+                )?;
 
-                combined.push_back(merged);
+                let deferred = if defer_features {
+                    Some(DeferredFeatures::Backoff {
+                        prefix: prefix_feats,
+                        stem: Box::new(stem_feats),
+                        suffix: suffix_feats,
+                        stemcat: stem_cat.clone(),
+                    })
+                } else {
+                    analysis.stem = stem_feats.diac.clone();
+                    analysis.stemcat = stem_cat.clone();
+                    analysis.source = "backoff".to_string();
+                    analysis.pattern = "backoff".to_string();
+                    analysis.gloss = stem_feats.gloss.clone();
+                    None
+                };
+
+                combined.push_back(AnalysisCandidate { analysis, deferred });
             }
         }
     }
@@ -503,19 +695,20 @@ pub fn combine_backoff_analyses(
     Ok(combined)
 }
 
-pub fn analyze(
+fn analyze_candidates<'a>(
     word: &str,
-    db: &morphology_db::MorphologyDB,
+    db: &'a morphology_db::MorphologyDB,
     strict_digit: bool,
     backoff: &str,
-) -> Result<VecDeque<ScoredAnalysis>> {
+    defer_features: bool,
+) -> Result<VecDeque<AnalysisCandidate<'a>>> {
     let word = word.trim();
-    let mut analyses: VecDeque<ScoredAnalysis> = VecDeque::new();
+    let mut analyses: VecDeque<AnalysisCandidate<'a>> = VecDeque::new();
     if word.is_empty() {
         return Ok(analyses);
     }
 
-    let word_dediac = utils::dediac_ar(word)?;
+    let word_dediac = utils::dediac_ar_cow(word);
     let word_normalized = utils::normalize_ar(word)?;
     let mut backoff_toks = backoff.split("_");
     let backoff_condition = backoff_toks
@@ -560,7 +753,10 @@ pub fn analyze(
             result.num = result.form_num.clone();
         }
 
-        analyses.push_back(result);
+        analyses.push_back(AnalysisCandidate {
+            analysis: result,
+            deferred: None,
+        });
         return Ok(analyses);
     } else if utils::is_punc(word) {
         let default_from_db = db
@@ -596,7 +792,10 @@ pub fn analyze(
             result.num = result.form_num.clone();
         }
 
-        analyses.push_back(result);
+        analyses.push_back(AnalysisCandidate {
+            analysis: result,
+            deferred: None,
+        });
         return Ok(analyses);
     } else if !utils::is_ar(word) {
         let default_from_db = db
@@ -632,7 +831,10 @@ pub fn analyze(
             result.num = result.form_num.clone();
         }
 
-        analyses.push_back(result);
+        analyses.push_back(AnalysisCandidate {
+            analysis: result,
+            deferred: None,
+        });
         return Ok(analyses);
     } else {
         let word_len = word_normalized.len();
@@ -668,12 +870,13 @@ pub fn analyze(
                     continue;
                 };
 
-                let combined = combine_analyses(
+                let combined = combine_analysis_candidates(
                     &word_dediac,
-                    &db,
+                    db,
                     prefix_entries,
                     stem_entries,
                     suffix_entries,
+                    defer_features,
                 )?;
 
                 analyses.extend(combined);
@@ -730,13 +933,14 @@ pub fn analyze(
                         continue;
                     };
 
-                    let combined = combine_backoff_analyses(
+                    let combined = combine_backoff_candidates(
                         stem_str,
-                        &db,
+                        db,
                         prefix_entries,
                         &backoff_stems,
                         suffix_entries,
                         backoff_action,
+                        defer_features,
                     )?;
 
                     analyses.extend(combined);
@@ -746,6 +950,27 @@ pub fn analyze(
     }
 
     Ok(analyses)
+}
+
+pub(crate) fn analyze_for_disambiguation<'a>(
+    word: &str,
+    db: &'a morphology_db::MorphologyDB,
+    strict_digit: bool,
+    backoff: &str,
+) -> Result<VecDeque<AnalysisCandidate<'a>>> {
+    analyze_candidates(word, db, strict_digit, backoff, true)
+}
+
+pub fn analyze(
+    word: &str,
+    db: &morphology_db::MorphologyDB,
+    strict_digit: bool,
+    backoff: &str,
+) -> Result<VecDeque<ScoredAnalysis>> {
+    Ok(analyze_candidates(word, db, strict_digit, backoff, false)?
+        .into_iter()
+        .map(|candidate| candidate.analysis)
+        .collect())
 }
 
 pub fn analyze_words(

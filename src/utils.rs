@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use regex::Regex;
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -34,18 +35,10 @@ pub static TOK_SCHEMES_1: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 pub static TOK_SCHEMES_2: LazyLock<HashSet<&'static str>> =
     LazyLock::new(|| HashSet::from(["d3tok", "d3seg"]));
 
-static RE_DEDIAC: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"[\u{064B}\u{064C}\u{064D}\u{064E}\u{064F}\u{0650}\u{0651}\u{0652}\u{0670}\u{0671}]",
-    )
-    .unwrap()
-});
 static RE_STRIP_LEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[_-]").unwrap());
 pub static RE_ZERO_WIDTH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[\u{200B}-\u{200D}\u{200E}\u{200F}\u{FEFF}]").unwrap());
 
-static RE_ALEF_NORMALIZE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[\u{0625}\u{0623}\u{0671}\u{0622}]").unwrap());
 static RE_IS_DIGIT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^.*[0-9\u{0660}-\u{0669}]+.*$").unwrap());
 static RE_IS_STRICT_DIGIT: LazyLock<Regex> =
@@ -98,11 +91,6 @@ static RE_CAPHI_8: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"p-\+([iua])")
 static RE_CAPHI_9: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"aa\+a[_]*").unwrap());
 
 static RE_CAPHI_12: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"((^_+)|(_p?_*$))").unwrap());
-
-static RE_TANWYN_FA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\u{064B}\u{0627}").unwrap());
-static RE_TANWYN_FY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\u{064B}\u{0649}").unwrap());
-static RE_TANWYN_AF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\u{0627}\u{064B}").unwrap());
-static RE_TANWYN_YF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\u{0649}\u{064B}").unwrap());
 
 static RE_TOKENIZE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[\p{P}\p{S}]|[\p{L}\p{M}\p{N}]+|\s+").unwrap());
@@ -186,8 +174,36 @@ fn ar_to_caphi_char(c: char) -> Option<&'static str> {
     }
 }
 
+#[inline]
+fn is_dediac_ar_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{064B}'
+            | '\u{064C}'
+            | '\u{064D}'
+            | '\u{064E}'
+            | '\u{064F}'
+            | '\u{0650}'
+            | '\u{0651}'
+            | '\u{0652}'
+            | '\u{0670}'
+            | '\u{0671}'
+    )
+}
+
+pub(crate) fn dediac_ar_cow(s: &str) -> Cow<'_, str> {
+    let Some((index, _)) = s.char_indices().find(|(_, c)| is_dediac_ar_char(*c)) else {
+        return Cow::Borrowed(s);
+    };
+
+    let mut result = String::with_capacity(s.len());
+    result.push_str(&s[..index]);
+    result.extend(s[index..].chars().filter(|c| !is_dediac_ar_char(*c)));
+    Cow::Owned(result)
+}
+
 pub fn dediac_ar(s: &str) -> Result<String> {
-    Ok(RE_DEDIAC.replace_all(s, "").to_string())
+    Ok(dediac_ar_cow(s).into_owned())
 }
 
 pub fn strip_lex(s: &str) -> Result<String> {
@@ -195,7 +211,12 @@ pub fn strip_lex(s: &str) -> Result<String> {
 }
 
 pub fn normalize_alef_ar(s: &str) -> String {
-    RE_ALEF_NORMALIZE.replace_all(s, "\u{0627}").to_string()
+    s.chars()
+        .map(|c| match c {
+            '\u{0625}' | '\u{0623}' | '\u{0671}' | '\u{0622}' => '\u{0627}',
+            _ => c,
+        })
+        .collect()
 }
 
 pub fn normalize_alef_maksura_ar(s: &str) -> String {
@@ -207,11 +228,20 @@ pub fn normalize_teh_marbuta_ar(s: &str) -> String {
 }
 
 pub fn normalize_ar(s: &str) -> Result<String> {
-    let s = dediac_ar(s)?;
-    let s = normalize_alef_ar(&s);
-    let s = normalize_alef_maksura_ar(&s);
-    let s = normalize_teh_marbuta_ar(&s);
-    Ok(s)
+    Ok(s.chars()
+        .filter_map(|c| {
+            if is_dediac_ar_char(c) {
+                None
+            } else {
+                Some(match c {
+                    '\u{0625}' | '\u{0623}' | '\u{0622}' => '\u{0627}',
+                    '\u{0649}' => '\u{064A}',
+                    '\u{0629}' => '\u{0647}',
+                    _ => c,
+                })
+            }
+        })
+        .collect())
 }
 
 pub fn is_digit(word: &str) -> bool {
@@ -246,24 +276,8 @@ pub fn simple_ar_to_caphi(ar_str: &str) -> String {
         .join("_")
 }
 
-pub fn normalize_tanwyn(word: &str, mode: &str) -> String {
-    let mut result = word.to_string();
-    if mode == "FA" {
-        result = RE_TANWYN_FA
-            .replace_all(&result, "\u{064B}\u{0627}")
-            .to_string();
-        result = RE_TANWYN_FY
-            .replace_all(&result, "\u{064B}\u{0649}")
-            .to_string();
-    } else {
-        result = RE_TANWYN_AF
-            .replace_all(&result, "\u{0627}\u{064B}")
-            .to_string();
-        result = RE_TANWYN_YF
-            .replace_all(&result, "\u{0649}\u{064B}")
-            .to_string();
-    }
-    result
+pub fn normalize_tanwyn(word: &str, _mode: &str) -> String {
+    word.to_string()
 }
 
 fn dedup_char(s: &str, c: char) -> String {
@@ -284,8 +298,12 @@ fn dedup_char(s: &str, c: char) -> String {
 }
 
 pub fn rewrite_diac(word: &str) -> String {
-    let mut result = RE_DIAC_1.replace_all(word, "${1}\u{0651}").to_string();
-    result = RE_DIAC_2.replace_all(&result, "").to_string();
+    let mut result = if word.contains(['#', '+']) {
+        let result = RE_DIAC_1.replace_all(word, "${1}\u{0651}");
+        RE_DIAC_2.replace_all(&result, "").into_owned()
+    } else {
+        word.to_string()
+    };
     result = RE_DIAC_3.replace_all(&result, "\u{0627}${1}").to_string();
     result = result.replace('\u{0671}', "\u{0627}");
     result = result.replace('+', "");
@@ -310,8 +328,12 @@ pub fn rewrite_caphi(word: &str) -> String {
 }
 
 pub fn rewrite_tok_1(word: &str) -> String {
-    let mut result = RE_DIAC_1.replace_all(word, "${1}\u{0651}").to_string();
-    result = RE_DIAC_2.replace_all(&result, "").to_string();
+    let mut result = if word.contains(['#', '+']) {
+        let result = RE_DIAC_1.replace_all(word, "${1}\u{0651}");
+        RE_DIAC_2.replace_all(&result, "").into_owned()
+    } else {
+        word.to_string()
+    };
     result = RE_DIAC_3.replace_all(&result, "\u{0627}${1}").to_string();
     result
 }

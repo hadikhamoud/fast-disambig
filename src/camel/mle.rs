@@ -67,67 +67,75 @@ pub fn disambiguate_word(
     backoff: &str,
     top: usize,
 ) -> Result<Vec<ScoredAnalysis>> {
-    let word = utils::dediac_ar(word)?;
+    let word = utils::dediac_ar_cow(word);
 
-    let mut analyses: Vec<ScoredAnalysis> = analyzer::analyze(&word, db, false, backoff)?
-        .into_iter()
-        .collect();
+    let mut analyses: Vec<analyzer::AnalysisCandidate<'_>> =
+        analyzer::analyze_for_disambiguation(&word, db, false, backoff)?
+            .into_iter()
+            .collect();
 
     if analyses.is_empty() {
         return Ok(vec![]);
     }
 
-    if let Some(mle_analysis) = mle_model.get(&word) {
+    if let Some(mle_analysis) = mle_model.get(word.as_ref()) {
         for a in &mut analyses {
-            a.score = score_analysis(a, mle_analysis);
+            a.analysis.score = score_analysis(&a.analysis, mle_analysis);
         }
 
         analyses.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
+            b.analysis
+                .score
+                .partial_cmp(&a.analysis.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.bw.len().cmp(&b.bw.len()))
-                .then_with(|| a.diac.cmp(&b.diac))
+                .then_with(|| a.analysis.bw.len().cmp(&b.analysis.bw.len()))
+                .then_with(|| a.analysis.diac.cmp(&b.analysis.diac))
         });
 
-        let max_score = analyses.first().map(|a| a.score).unwrap_or(1.0);
+        let max_score = analyses.first().map(|a| a.analysis.score).unwrap_or(1.0);
         let max_score = if max_score == 0.0 { 1.0 } else { max_score };
 
         for a in &mut analyses {
-            a.score /= max_score;
+            a.analysis.score /= max_score;
         }
     } else {
         let max_prob = analyses
             .iter()
-            .map(|a| 10_f64.powf(a.pos_lex_logprob))
+            .map(|a| 10_f64.powf(a.analysis.pos_lex_logprob))
             .fold(f64::NEG_INFINITY, f64::max);
 
         let max_prob = if max_prob == 0.0 { 1.0 } else { max_prob };
 
         for a in &mut analyses {
-            a.score = 10_f64.powf(a.pos_lex_logprob) / max_prob;
+            a.analysis.score = 10_f64.powf(a.analysis.pos_lex_logprob) / max_prob;
         }
 
         analyses.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
+            b.analysis
+                .score
+                .partial_cmp(&a.analysis.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| {
-                    b.pos_lex_logprob
-                        .partial_cmp(&a.pos_lex_logprob)
+                    b.analysis
+                        .pos_lex_logprob
+                        .partial_cmp(&a.analysis.pos_lex_logprob)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .then_with(|| {
-                    b.lex_logprob
-                        .partial_cmp(&a.lex_logprob)
+                    b.analysis
+                        .lex_logprob
+                        .partial_cmp(&a.analysis.lex_logprob)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .then_with(|| a.diac.cmp(&b.diac))
+                .then_with(|| a.analysis.diac.cmp(&b.analysis.diac))
         });
     }
 
     analyses.truncate(top);
-    Ok(analyses)
+    analyses
+        .into_iter()
+        .map(|candidate| candidate.materialize(db))
+        .collect()
 }
 
 pub fn disambiguate(

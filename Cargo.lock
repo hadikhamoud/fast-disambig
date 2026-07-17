@@ -330,7 +330,7 @@ dependencies = [
 
 [[package]]
 name = "fast-disambig"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -348,7 +348,7 @@ dependencies = [
 
 [[package]]
 name = "fast-disambig-node"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "fast-disambig",
  "napi",
@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "fast-disambig-python"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "fast-disambig",
  "pyo3",
