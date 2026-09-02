@@ -2,7 +2,7 @@ use crate::camel::analyzer::{self, ScoredAnalysis};
 use crate::camel::mle;
 use crate::camel::morphology_db::MorphologyDB;
 use crate::camel::resources::{self, CamelResources};
-use crate::camel::stemmer;
+use crate::camel::stemmer::{self, Piece};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -104,6 +104,56 @@ impl StemmerEngine {
         backoff: &str,
         fallback: &[String],
     ) -> Result<String> {
+        let fallback: Vec<&str> = fallback.iter().map(String::as_str).collect();
+        self.with_request_cache(text, backoff, |cache| {
+            stemmer::stem(
+                text,
+                &self.resources.db,
+                &self.resources.model,
+                sep,
+                scheme,
+                preserve_diacritics,
+                backoff,
+                Some(cache),
+                0,
+                &fallback,
+            )
+        })
+    }
+
+    pub fn stem_tagged(
+        &self,
+        text: &str,
+        sep: &str,
+        scheme: &str,
+        preserve_diacritics: bool,
+        backoff: &str,
+        fallback: &[String],
+    ) -> Result<Vec<Piece>> {
+        let fallback: Vec<&str> = fallback.iter().map(String::as_str).collect();
+        self.with_request_cache(text, backoff, |cache| {
+            stemmer::stem_tagged(
+                text,
+                &self.resources.db,
+                &self.resources.model,
+                sep,
+                scheme,
+                preserve_diacritics,
+                backoff,
+                Some(cache),
+                0,
+                &fallback,
+            )
+        })
+    }
+
+    /// Run `run` with a per-request cache seeded from the shared cache, then merge back.
+    fn with_request_cache<T>(
+        &self,
+        text: &str,
+        backoff: &str,
+        run: impl FnOnce(&mut HashMap<String, Vec<ScoredAnalysis>>) -> Result<T>,
+    ) -> Result<T> {
         let keys = stemmer::cache_keys(text);
         let mut request_cache = match &self.cache {
             Some(cache) => {
@@ -121,19 +171,7 @@ impl StemmerEngine {
             }
             None => HashMap::new(),
         };
-        let fallback: Vec<&str> = fallback.iter().map(String::as_str).collect();
-        let result = stemmer::stem(
-            text,
-            &self.resources.db,
-            &self.resources.model,
-            sep,
-            scheme,
-            preserve_diacritics,
-            backoff,
-            Some(&mut request_cache),
-            0,
-            &fallback,
-        )?;
+        let result = run(&mut request_cache)?;
 
         if let Some(cache) = &self.cache {
             let mut cache = cache

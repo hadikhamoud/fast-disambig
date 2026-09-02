@@ -7,6 +7,48 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+/// One output unit of `stem_tagged`: a stem piece, a separator, whitespace or punctuation.
+///
+/// `ud` is the Universal Dependencies tag of the piece (`SPEC_TOK` for separators,
+/// `UNK` for whitespace or unanalysable words). `pos` is the CAMeL POS tag of the
+/// word the piece came from. Concatenating `text` over all pieces reproduces `stem`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Piece {
+    pub text: String,
+    pub ud: String,
+    pub pos: String,
+}
+
+/// Output target of the shared stemming loop. `stem` writes straight into a `String`,
+/// `stem_tagged` collects `Piece`s. `WANTS_TAGS` is a compile-time constant, so the
+/// tag alignment work is eliminated entirely from the `String` instantiation.
+trait PieceSink {
+    const WANTS_TAGS: bool;
+    fn emit(&mut self, text: &str, ud: &str, pos: &str);
+}
+
+impl PieceSink for String {
+    const WANTS_TAGS: bool = false;
+
+    #[inline]
+    fn emit(&mut self, text: &str, _ud: &str, _pos: &str) {
+        self.push_str(text);
+    }
+}
+
+impl PieceSink for Vec<Piece> {
+    const WANTS_TAGS: bool = true;
+
+    #[inline]
+    fn emit(&mut self, text: &str, ud: &str, pos: &str) {
+        self.push(Piece {
+            text: text.to_owned(),
+            ud: ud.to_owned(),
+            pos: pos.to_owned(),
+        });
+    }
+}
+
 fn get_scheme_field<'a>(analysis: &'a ScoredAnalysis, scheme: &str) -> &'a str {
     match scheme {
         "d1seg" => &analysis.d1seg,
@@ -70,7 +112,29 @@ fn try_scheme(
     }
 }
 
-pub fn stem(
+/// Emit segmented tokens with one UD tag per token, separators as `SPEC_TOK`.
+/// UD tags are consumed in order and the last one is repeated once exhausted.
+fn emit_tagged<S: PieceSink>(out: &mut S, toks: &[String], ud: &str, pos: &str, sep: &str) {
+    let tags: Vec<&str> = ud.split('+').filter(|t| !t.is_empty()).collect();
+    for (i, tok) in toks.iter().enumerate() {
+        let tag = tags.get(i).or(tags.last()).copied().unwrap_or("UNK");
+        let leading = tok.starts_with(sep);
+        let core = tok.strip_prefix(sep).unwrap_or(tok);
+        let trailing = core.ends_with(sep);
+        let core = core.strip_suffix(sep).unwrap_or(core);
+        if leading {
+            out.emit(sep, "SPEC_TOK", pos);
+        }
+        if !core.is_empty() {
+            out.emit(core, tag, pos);
+        }
+        if trailing {
+            out.emit(sep, "SPEC_TOK", pos);
+        }
+    }
+}
+
+fn stem_into<S: PieceSink>(
     text: &str,
     db: &MorphologyDB,
     mle_model: &HashMap<String, ScoredAnalysis>,
@@ -81,7 +145,8 @@ pub fn stem(
     cache: Option<&mut HashMap<String, Vec<ScoredAnalysis>>>,
     max_cache_size: usize,
     fallback: &[&str],
-) -> Result<String> {
+    out: &mut S,
+) -> Result<()> {
     let text = text.replace('\u{0640}', "");
     let text = utils::RE_ZERO_WIDTH.replace_all(&text, "").to_string();
 
@@ -132,12 +197,16 @@ pub fn stem(
         }
     }
 
-    let mut output = String::new();
     let mut word_idx = 0;
 
     for token in &all_tokens {
         if !is_word_token(token) {
-            output.push_str(token);
+            let (ud, pos) = if S::WANTS_TAGS && !token.trim().is_empty() {
+                ("PUNCT", "punc")
+            } else {
+                ("UNK", "UNK")
+            };
+            out.emit(token, ud, pos);
             continue;
         }
 
@@ -147,7 +216,7 @@ pub fn stem(
         word_idx += 1;
 
         if word_analyses.is_empty() {
-            output.push_str(original);
+            out.emit(original, "UNK", "UNK");
             continue;
         }
 
@@ -172,15 +241,87 @@ pub fn stem(
                 if word_has_diacritics {
                     toks = utils::apply_diacritics(&toks, original, sep);
                 }
-                for t in &toks {
-                    output.push_str(t);
+                if S::WANTS_TAGS {
+                    emit_tagged(out, &toks, &analysis.ud, &analysis.pos, sep);
+                } else {
+                    for t in &toks {
+                        out.emit(t, "", "");
+                    }
                 }
             }
             None => {
-                output.push_str(original);
+                let ud = if S::WANTS_TAGS {
+                    analysis
+                        .ud
+                        .split('+')
+                        .find(|t| !t.is_empty())
+                        .unwrap_or("X")
+                } else {
+                    ""
+                };
+                out.emit(original, ud, &analysis.pos);
             }
         }
     }
 
+    Ok(())
+}
+
+pub fn stem(
+    text: &str,
+    db: &MorphologyDB,
+    mle_model: &HashMap<String, ScoredAnalysis>,
+    sep: &str,
+    scheme: &str,
+    preserve_diacritics: bool,
+    backoff: &str,
+    cache: Option<&mut HashMap<String, Vec<ScoredAnalysis>>>,
+    max_cache_size: usize,
+    fallback: &[&str],
+) -> Result<String> {
+    let mut output = String::new();
+    stem_into(
+        text,
+        db,
+        mle_model,
+        sep,
+        scheme,
+        preserve_diacritics,
+        backoff,
+        cache,
+        max_cache_size,
+        fallback,
+        &mut output,
+    )?;
+    Ok(output)
+}
+
+/// Same segmentation as `stem`, returned as tagged pieces instead of a joined string.
+pub fn stem_tagged(
+    text: &str,
+    db: &MorphologyDB,
+    mle_model: &HashMap<String, ScoredAnalysis>,
+    sep: &str,
+    scheme: &str,
+    preserve_diacritics: bool,
+    backoff: &str,
+    cache: Option<&mut HashMap<String, Vec<ScoredAnalysis>>>,
+    max_cache_size: usize,
+    fallback: &[&str],
+) -> Result<Vec<Piece>> {
+    let mut output = Vec::new();
+    stem_into(
+        text,
+        db,
+        mle_model,
+        sep,
+        scheme,
+        preserve_diacritics,
+        backoff,
+        cache,
+        max_cache_size,
+        fallback,
+        &mut output,
+    )?;
     Ok(output)
 }

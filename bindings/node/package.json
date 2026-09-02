@@ -1,6 +1,6 @@
 {
   "name": "fast-disambig",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Fast Arabic morphological disambiguation and stemming",
   "license": "MIT",
   "repository": {

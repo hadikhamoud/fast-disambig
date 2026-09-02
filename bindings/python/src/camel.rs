@@ -8,7 +8,38 @@ use fast_disambig::camel::mle;
 use fast_disambig::camel::morphology_db::MorphologyDB;
 use fast_disambig::camel::resources::resolve_resource_path as resolve_core_resource_path;
 use fast_disambig::camel::stemmer;
+use fast_disambig::camel::stemmer::Piece;
 use fast_disambig::utils;
+
+#[pyclass(name = "StemPiece", frozen)]
+pub struct PyStemPiece {
+    #[pyo3(get)]
+    text: String,
+    #[pyo3(get)]
+    ud: String,
+    #[pyo3(get)]
+    pos: String,
+}
+
+#[pymethods]
+impl PyStemPiece {
+    fn __repr__(&self) -> String {
+        format!(
+            "StemPiece(text='{}', ud='{}', pos='{}')",
+            self.text, self.ud, self.pos
+        )
+    }
+}
+
+impl From<Piece> for PyStemPiece {
+    fn from(piece: Piece) -> Self {
+        PyStemPiece {
+            text: piece.text,
+            ud: piece.ud,
+            pos: piece.pos,
+        }
+    }
+}
 
 #[pyclass]
 pub struct PyMorphologyDB {
@@ -604,6 +635,38 @@ impl Stemmer {
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
+    /// Same segmentation as `stem`, returned as a list of `StemPiece` carrying the
+    /// UD tag of each piece and the CAMeL POS tag of its source word.
+    #[pyo3(signature = (text, sep="[+]", scheme="d3tok", preserve_diacritics=false, backoff="NOAN_PROP", fallback=None))]
+    fn stem_tagged(
+        &mut self,
+        text: &str,
+        sep: &str,
+        scheme: &str,
+        preserve_diacritics: bool,
+        backoff: &str,
+        fallback: Option<Vec<String>>,
+    ) -> PyResult<Vec<PyStemPiece>> {
+        let fallback_refs: Vec<&str> = fallback
+            .as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default();
+        stemmer::stem_tagged(
+            text,
+            &self.db,
+            &self.model,
+            sep,
+            scheme,
+            preserve_diacritics,
+            backoff,
+            self.cache.as_mut(),
+            self.max_cache_size,
+            &fallback_refs,
+        )
+        .map(|pieces| pieces.into_iter().map(PyStemPiece::from).collect())
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
     fn clear_cache(&mut self) {
         if let Some(c) = &mut self.cache {
             c.clear();
@@ -653,6 +716,7 @@ pub fn register(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DisambiguatedWord>()?;
     m.add_class::<MLEDisambiguator>()?;
     m.add_class::<Stemmer>()?;
+    m.add_class::<PyStemPiece>()?;
     m.add_class::<Analyzer>()?;
     m.add_function(wrap_pyfunction!(disambiguate, m)?)?;
     m.add_function(wrap_pyfunction!(tokenize, m)?)?;

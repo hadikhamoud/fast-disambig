@@ -87,6 +87,25 @@ Disable cache:
 stemmer = fast_disambig.camel.Stemmer(cache_size=0)
 ```
 
+### Tagged stemming
+
+`stem_tagged` performs the same segmentation as `stem` but returns one `StemPiece` per
+piece, separator, whitespace or punctuation token. `ud` is the Universal Dependencies tag
+of the piece (`SPEC_TOK` for separators, `UNK` for whitespace or unanalysable words) and
+`pos` is the CAMeL POS tag of the word the piece came from. Joining `text` over the pieces
+gives exactly the output of `stem`.
+
+```python
+pieces = stemmer.stem_tagged("والكتاب الجميل")
+[(p.text, p.ud, p.pos) for p in pieces]
+# [('و', 'CCONJ', 'noun'), ('[+]', 'SPEC_TOK', 'noun'), ('ال', 'NOUN', 'noun'),
+#  ('[+]', 'SPEC_TOK', 'noun'), ('كتاب', 'NOUN', 'noun'), (' ', 'UNK', 'UNK'),
+#  ('ال', 'NOUN', 'noun'), ('[+]', 'SPEC_TOK', 'noun'), ('جميل', 'NOUN', 'noun')]
+
+"".join(p.text for p in pieces) == stemmer.stem("والكتاب الجميل")
+# True
+```
+
 ### Tokenizer
 
 ```python
